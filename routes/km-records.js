@@ -20,8 +20,6 @@ const BASE_SELECT = `
          kr.team_id                    AS "teamId",
          kr.user_id                    AS "userId",
          kr.vehicle_type_id            AS "vehicleTypeId",
-         kr.km_inicial                 AS "kmInicial",
-         kr.km_final                   AS "kmFinal",
          kr.total_km                   AS "totalKm",
          kr.valor_km                   AS "valorKm",
          kr.valor_total_km             AS "valorTotalKm",
@@ -74,32 +72,29 @@ router.get("/", auth, async (req, res) => {
 
 // POST /km-records
 router.post("/", auth, async (req, res) => {
-  const { data, companyId, teamId, userId, vehicleTypeId, kmInicial, kmFinal, justificativa } = req.body;
-  if (!data || !companyId || !teamId || !userId || !vehicleTypeId || kmInicial == null || kmFinal == null)
+  const { data, companyId, teamId, userId, vehicleTypeId, totalKm, justificativa } = req.body;
+  if (!data || !companyId || !teamId || !userId || !vehicleTypeId || totalKm == null)
     return res.status(400).json({ error: "Preencha todos os campos obrigatórios." });
 
   const dt = parseDate(data);
-  const ki = parseFloat(kmInicial);
-  const kf = parseFloat(kmFinal);
-  const totalKm = ki + kf;
+  const tk = parseFloat(totalKm);
 
-  // Lookup valor_km
   const vkr = await pool.query(
     `SELECT valor_km FROM km_values
       WHERE vehicle_type_id=$1 AND data_inicio<=$2::date AND data_fim>=$2::date
       LIMIT 1`,
     [vehicleTypeId, dt]
   );
-  const valorKm     = parseFloat(vkr.rows[0]?.valor_km || 0);
-  const valorTotalKm = parseFloat((totalKm * valorKm).toFixed(2));
+  const valorKm      = parseFloat(vkr.rows[0]?.valor_km || 0);
+  const valorTotalKm = parseFloat((tk * valorKm).toFixed(2));
 
   try {
     const r = await pool.query(
       `INSERT INTO km_records
          (data, company_id, team_id, user_id, vehicle_type_id, km_inicial, km_final, total_km, valor_km, valor_total_km, justificativa)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       VALUES ($1,$2,$3,$4,$5,0,0,$6,$7,$8,$9)
        RETURNING id`,
-      [dt, companyId, teamId, userId, vehicleTypeId, ki, kf, totalKm, valorKm, valorTotalKm, justificativa||null]
+      [dt, companyId, teamId, userId, vehicleTypeId, tk, valorKm, valorTotalKm, justificativa||null]
     );
     const row = await pool.query(`${BASE_SELECT} WHERE kr.id=$1`, [r.rows[0].id]);
     res.status(201).json(row.rows[0]);
@@ -111,7 +106,6 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /km-records/:id
 router.put("/:id", auth, async (req, res) => {
-  // Check ownership
   const reqUser = await pool.query("SELECT is_master FROM users WHERE id=$1", [req.user.id]);
   const isMaster = reqUser.rows[0]?.is_master;
   if (!isMaster) {
@@ -121,14 +115,12 @@ router.put("/:id", auth, async (req, res) => {
       return res.status(403).json({ error: "Você só pode editar seus próprios lançamentos." });
   }
 
-  const { data, companyId, teamId, userId, vehicleTypeId, kmInicial, kmFinal, justificativa } = req.body;
-  if (!data || !companyId || !teamId || !userId || !vehicleTypeId || kmInicial == null || kmFinal == null)
+  const { data, companyId, teamId, userId, vehicleTypeId, totalKm, justificativa } = req.body;
+  if (!data || !companyId || !teamId || !userId || !vehicleTypeId || totalKm == null)
     return res.status(400).json({ error: "Preencha todos os campos obrigatórios." });
 
   const dt = parseDate(data);
-  const ki = parseFloat(kmInicial);
-  const kf = parseFloat(kmFinal);
-  const totalKm = ki + kf;
+  const tk = parseFloat(totalKm);
 
   const vkr = await pool.query(
     `SELECT valor_km FROM km_values
@@ -137,16 +129,15 @@ router.put("/:id", auth, async (req, res) => {
     [vehicleTypeId, dt]
   );
   const valorKm      = parseFloat(vkr.rows[0]?.valor_km || 0);
-  const valorTotalKm = parseFloat((totalKm * valorKm).toFixed(2));
+  const valorTotalKm = parseFloat((tk * valorKm).toFixed(2));
 
   try {
     const r = await pool.query(
       `UPDATE km_records
           SET data=$1, company_id=$2, team_id=$3, user_id=$4, vehicle_type_id=$5,
-              km_inicial=$6, km_final=$7, total_km=$8, valor_km=$9, valor_total_km=$10,
-              justificativa=$11, updated_at=NOW()
-        WHERE id=$12`,
-      [dt, companyId, teamId, userId, vehicleTypeId, ki, kf, totalKm, valorKm, valorTotalKm, justificativa||null, req.params.id]
+              total_km=$6, valor_km=$7, valor_total_km=$8, justificativa=$9, updated_at=NOW()
+        WHERE id=$10`,
+      [dt, companyId, teamId, userId, vehicleTypeId, tk, valorKm, valorTotalKm, justificativa||null, req.params.id]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: "Registro não encontrado." });
     const row = await pool.query(`${BASE_SELECT} WHERE kr.id=$1`, [req.params.id]);

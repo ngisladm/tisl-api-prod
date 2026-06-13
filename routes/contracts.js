@@ -23,6 +23,9 @@ const BASE_SELECT = `
          ct.valor_atual     AS "valorAtual",
          ct.observacao,
          ct.attachments,
+         ct.frequencia,
+         CASE WHEN ct.data_fim IS NOT NULL AND ct.data_fim <= CURRENT_DATE
+              THEN 'Inativo' ELSE 'Ativo' END AS status,
          c.name  AS "companyName",
          s.name  AS "supplierName"
     FROM contracts ct
@@ -32,15 +35,18 @@ const BASE_SELECT = `
 
 // GET /contracts/report
 router.get("/report", auth, async (req, res) => {
-  const { companyId, supplierId, contractNumber, dateFrom, dateTo } = req.query;
+  const { companyId, supplierId, contractNumber, dateFrom, dateTo, status, frequencia } = req.query;
   const params = [];
   const where  = [];
 
-  if (companyId)      { params.push(companyId);               where.push(`ct.company_id      = $${params.length}::uuid`); }
-  if (supplierId)     { params.push(supplierId);              where.push(`ct.supplier_id     = $${params.length}::uuid`); }
-  if (contractNumber) { params.push(`%${contractNumber}%`);   where.push(`ct.contract_number ILIKE $${params.length}`); }
-  if (dateFrom)       { params.push(parseDate(dateFrom));     where.push(`ct.data_inicio >= $${params.length}::date`); }
-  if (dateTo)         { params.push(parseDate(dateTo));       where.push(`ct.data_fim    <= $${params.length}::date`); }
+  if (companyId)      { params.push(companyId);             where.push(`ct.company_id      = $${params.length}::uuid`); }
+  if (supplierId)     { params.push(supplierId);            where.push(`ct.supplier_id     = $${params.length}::uuid`); }
+  if (contractNumber) { params.push(`%${contractNumber}%`); where.push(`ct.contract_number ILIKE $${params.length}`); }
+  if (dateFrom)       { params.push(parseDate(dateFrom));   where.push(`ct.data_inicio >= $${params.length}::date`); }
+  if (dateTo)         { params.push(parseDate(dateTo));     where.push(`ct.data_fim    <= $${params.length}::date`); }
+  if (frequencia)     { params.push(frequencia);            where.push(`ct.frequencia = $${params.length}`); }
+  if (status === "Inativo") { where.push(`(ct.data_fim IS NOT NULL AND ct.data_fim <= CURRENT_DATE)`); }
+  if (status === "Ativo")   { where.push(`(ct.data_fim IS NULL OR ct.data_fim > CURRENT_DATE)`); }
 
   const sql = `${BASE_SELECT} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY s.name, ct.contract_number`;
   try {
@@ -65,16 +71,16 @@ router.get("/", auth, async (req, res) => {
 
 // POST /contracts
 router.post("/", auth, async (req, res) => {
-  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, attachments } = req.body;
+  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, attachments, frequencia } = req.body;
   if (!companyId || !supplierId)
     return res.status(400).json({ error: "Empresa e Fornecedor são obrigatórios." });
   try {
     const r = await pool.query(
-      `INSERT INTO contracts (company_id, supplier_id, contract_number, data_inicio, data_fim, valor, valor_atual, observacao, attachments)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO contracts (company_id, supplier_id, contract_number, data_inicio, data_fim, valor, valor_atual, observacao, attachments, frequencia)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id`,
       [companyId, supplierId, contractNumber||null, parseDate(dataInicio), parseDate(dataFim),
-       valor||null, valorAtual||null, observacao||null, JSON.stringify(attachments||[])]
+       valor||null, valorAtual||null, observacao||null, JSON.stringify(attachments||[]), frequencia||null]
     );
     const row = await pool.query(`${BASE_SELECT} WHERE ct.id=$1`, [r.rows[0].id]);
     res.status(201).json(row.rows[0]);
@@ -86,17 +92,17 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /contracts/:id
 router.put("/:id", auth, async (req, res) => {
-  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, attachments } = req.body;
+  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, attachments, frequencia } = req.body;
   if (!companyId || !supplierId)
     return res.status(400).json({ error: "Empresa e Fornecedor são obrigatórios." });
   try {
     const r = await pool.query(
       `UPDATE contracts
           SET company_id=$1, supplier_id=$2, contract_number=$3, data_inicio=$4, data_fim=$5,
-              valor=$6, valor_atual=$7, observacao=$8, attachments=$9, updated_at=NOW()
-        WHERE id=$10`,
+              valor=$6, valor_atual=$7, observacao=$8, attachments=$9, frequencia=$10, updated_at=NOW()
+        WHERE id=$11`,
       [companyId, supplierId, contractNumber||null, parseDate(dataInicio), parseDate(dataFim),
-       valor||null, valorAtual||null, observacao||null, JSON.stringify(attachments||[]), req.params.id]
+       valor||null, valorAtual||null, observacao||null, JSON.stringify(attachments||[]), frequencia||null, req.params.id]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: "Não encontrado." });
     const row = await pool.query(`${BASE_SELECT} WHERE ct.id=$1`, [req.params.id]);
