@@ -7,7 +7,7 @@ const auth    = require("../middleware/auth");
 router.get("/", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, name, active, created_at FROM companies ORDER BY name"
+      "SELECT id, name, cnpj, active, created_at FROM companies ORDER BY name"
     );
     res.json(result.rows);
   } catch (err) {
@@ -18,13 +18,13 @@ router.get("/", auth, async (req, res) => {
 
 // POST /companies
 router.post("/", auth, async (req, res) => {
-  const { name, active = true } = req.body;
+  const { name, cnpj, active = true } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
 
   try {
     const result = await pool.query(
-      "INSERT INTO companies (name, active) VALUES ($1, $2) RETURNING *",
-      [name.trim(), active]
+      "INSERT INTO companies (name, cnpj, active) VALUES ($1, $2, $3) RETURNING *",
+      [name.trim(), cnpj||null, active]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -35,13 +35,13 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /companies/:id
 router.put("/:id", auth, async (req, res) => {
-  const { name, active } = req.body;
+  const { name, cnpj, active } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
 
   try {
     const result = await pool.query(
-      "UPDATE companies SET name=$1, active=$2 WHERE id=$3 RETURNING *",
-      [name.trim(), active, req.params.id]
+      "UPDATE companies SET name=$1, cnpj=$2, active=$3 WHERE id=$4 RETURNING *",
+      [name.trim(), cnpj||null, active, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Empresa não encontrada." });
     res.json(result.rows[0]);
