@@ -18,7 +18,7 @@ router.get("/", auth, async (req, res) => {
 router.get("/:id/users", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, name FROM users WHERE team_id = $1 AND active = TRUE ORDER BY name",
+      "SELECT id, name, company_id AS \"companyId\" FROM users WHERE team_id = $1 AND active = TRUE ORDER BY name",
       [req.params.id]
     );
     res.json(result.rows);
