@@ -45,6 +45,11 @@ router.post("/", auth, async (req, res) => {
   };
 
   try {
+    const reqUser = await pool.query("SELECT is_master FROM users WHERE id=$1", [req.user.id]);
+    const isMaster = reqUser.rows[0]?.is_master;
+    if (!isMaster && userId !== req.user.id)
+      return res.status(403).json({ error: "Você não pode inserir lançamentos para outro usuário." });
+
     const result = await pool.query(
       `INSERT INTO extra_avulso (company_id, team_id, user_id, data, hora_inicio, hora_fim, observacao, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)

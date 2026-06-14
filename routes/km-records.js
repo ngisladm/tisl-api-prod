@@ -76,6 +76,11 @@ router.post("/", auth, async (req, res) => {
   if (!data || !companyId || !teamId || !userId || !vehicleTypeId || totalKm == null)
     return res.status(400).json({ error: "Preencha todos os campos obrigatórios." });
 
+  const reqUser2 = await pool.query("SELECT is_master FROM users WHERE id=$1", [req.user.id]);
+  const isMaster2 = reqUser2.rows[0]?.is_master;
+  if (!isMaster2 && userId !== req.user.id)
+    return res.status(403).json({ error: "Você não pode inserir lançamentos para outro usuário." });
+
   const dt = parseDate(data);
   const tk = parseFloat(totalKm);
 
