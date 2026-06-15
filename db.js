@@ -1,10 +1,14 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
+// DB_SSL=false  → sem SSL (conexão interna Docker)
+// DB_SSL=true   → SSL sem verificar certificado (Render, cloud)
+const useSsl = process.env.DB_SSL !== "false";
+
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
+      ssl: useSsl ? { rejectUnauthorized: false } : false,
     })
   : new Pool({
       host:     process.env.DB_HOST,
