@@ -41,3 +41,4 @@ app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 app.listen(PORT, () => {
   console.log(`🚀 API rodando em http://localhost:${PORT}`);
 });
+// test auto-deploy
