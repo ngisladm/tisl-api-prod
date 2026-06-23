@@ -16,11 +16,17 @@ const kmRecordsRoutes    = require("./routes/km-records");
 const suppliersRoutes    = require("./routes/suppliers");
 const contractsRoutes    = require("./routes/contracts");
 
+const pool = require("./db");
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "50mb" }));
+
+// Auto-migrate
+pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT").catch(() => {});
+pool.query("INSERT INTO screens (id, name, module) VALUES ('s15','Relatório de Escala','Relatórios') ON CONFLICT DO NOTHING").catch(() => {});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s15\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's15')").catch(() => {});
 
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);

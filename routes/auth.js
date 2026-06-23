@@ -16,6 +16,7 @@ router.post("/login", async (req, res) => {
       `SELECT u.id, u.name, u.email, u.password_hash, u.active,
               u.profile_id AS "profileId", u.company_id AS "companyId",
               u.is_master  AS "isMaster",
+              u.avatar,
               p.permissions
          FROM users u
          JOIN profiles p ON p.id = u.profile_id
@@ -57,6 +58,7 @@ router.post("/login", async (req, res) => {
         profileId:   user.profileId,
         companyId:   user.companyId,
         isMaster:    user.isMaster || false,
+        avatar:      user.avatar || null,
         permissions: user.permissions,
       },
     });

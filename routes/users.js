@@ -4,6 +4,59 @@ const bcrypt  = require("bcryptjs");
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
+// GET /users/me — perfil do usuário logado
+router.get("/me", auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, avatar FROM users WHERE id=$1`,
+      [req.user.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Usuário não encontrado." });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar perfil." });
+  }
+});
+
+// PUT /users/me — atualizar nome e/ou avatar
+router.put("/me", auth, async (req, res) => {
+  const { name, avatar } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+  try {
+    const result = await pool.query(
+      `UPDATE users SET name=$1, avatar=$2, updated_at=NOW() WHERE id=$3
+       RETURNING id, name, email, avatar`,
+      [name.trim(), avatar || null, req.user.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao atualizar perfil." });
+  }
+});
+
+// PUT /users/me/password — alterar senha
+router.put("/me/password", auth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    return res.status(400).json({ error: "Senha atual e nova senha são obrigatórias." });
+  if (newPassword.length < 6)
+    return res.status(400).json({ error: "A nova senha deve ter no mínimo 6 caracteres." });
+  try {
+    const result = await pool.query("SELECT password_hash FROM users WHERE id=$1", [req.user.id]);
+    if (!result.rows[0]) return res.status(404).json({ error: "Usuário não encontrado." });
+    const match = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+    if (!match) return res.status(400).json({ error: "Senha atual incorreta." });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password_hash=$1, updated_at=NOW() WHERE id=$2", [hash, req.user.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao alterar senha." });
+  }
+});
+
 // GET /users
 router.get("/", auth, async (req, res) => {
   try {

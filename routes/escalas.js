@@ -222,6 +222,48 @@ router.put("/:id/turnos/:turnoId", auth, async (req, res) => {
   }
 });
 
+// GET /escalas/:id/relatorio-calendario — calendário da escala com nomes dos usuários
+router.get("/:id/relatorio-calendario", auth, async (req, res) => {
+  try {
+    const escalaResult = await pool.query(
+      `SELECT e.id, e.company_id AS "companyId", e.team_id AS "teamId",
+              TO_CHAR(e.data_inicio,'DD/MM/YYYY') AS "dataInicio",
+              TO_CHAR(e.data_fim,   'DD/MM/YYYY') AS "dataFim",
+              c.name AS "companyName", t.name AS "teamName"
+         FROM escalas e
+         LEFT JOIN companies c ON c.id = e.company_id
+         LEFT JOIN teams     t ON t.id = e.team_id
+        WHERE e.id=$1`,
+      [req.params.id]
+    );
+    if (!escalaResult.rows[0]) return res.status(404).json({ error: "Escala não encontrada." });
+
+    const turnosResult = await pool.query(
+      `SELECT et.id,
+              TO_CHAR(et.turno_date,'YYYY-MM-DD') AS "turnoDate",
+              et.turno,
+              et.user_id   AS "userId",
+              et.is_feriado AS "isFeriado",
+              TO_CHAR(et.hora_inicio,  'HH24:MI') AS "horaInicio",
+              TO_CHAR(et.hora_fim,     'HH24:MI') AS "horaFim",
+              TO_CHAR(et.extra_inicio, 'HH24:MI') AS "extraInicio",
+              TO_CHAR(et.extra_fim,    'HH24:MI') AS "extraFim",
+              et.observacao,
+              u.name AS "userName"
+         FROM escala_turnos et
+         LEFT JOIN users u ON u.id = et.user_id
+        WHERE et.escala_id=$1
+        ORDER BY et.turno_date, et.turno`,
+      [req.params.id]
+    );
+
+    res.json({ escala: escalaResult.rows[0], turnos: turnosResult.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao gerar relatório de calendário." });
+  }
+});
+
 // GET /escalas/relatorio/horas
 router.get("/relatorio/horas", auth, async (req, res) => {
   const { dataInicio, dataFim, userId, teamId, companyId } = req.query;
