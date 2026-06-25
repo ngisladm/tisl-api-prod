@@ -113,8 +113,9 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s18','Tipo de Ativo','
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s19','Linhas Disponíveis','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
+// Garante permissões completas para s18-s21 em todos os perfis
 ["s18","s19","s20","s21"].forEach(s=>{
-  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? '${s}')`).catch(()=>{});
+  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(()=>{});
 });
 
 app.use("/auth",          authRoutes);
