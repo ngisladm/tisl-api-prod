@@ -88,6 +88,18 @@ router.delete("/:id", auth, async (req, res) => {
   }
 });
 
+// GET /linhas-faturadas/itens/all — resumo de todos os itens para filtros na tela principal
+router.get("/itens/all", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT i.linha_faturada_id AS "linhaFaturadaId", i.numero_linha AS "numeroLinha"
+         FROM itens_linhas_faturadas i
+        WHERE i.numero_linha IS NOT NULL AND i.numero_linha <> ''`
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar itens." }); }
+});
+
 // GET /linhas-faturadas/:id/itens
 router.get("/:id/itens", auth, async (req, res) => {
   try {
