@@ -21,6 +21,7 @@ const tipoAtivosRoutes        = require("./routes/tipo-ativos");
 const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
 const ativosRoutes            = require("./routes/ativos");
 const controleAtivosRoutes    = require("./routes/controle-ativos");
+const funcionariosRoutes      = require("./routes/funcionarios");
 
 const pool = require("./db");
 const app  = express();
@@ -141,6 +142,33 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativ
   pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(()=>{});
 });
 
+// Versão 5 — Funcionários (s22)
+pool.query(`CREATE TABLE IF NOT EXISTS funcionarios (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome VARCHAR(200) NOT NULL,
+  matricula VARCHAR(50),
+  centro_custo VARCHAR(100),
+  cargo VARCHAR(100),
+  rg VARCHAR(20),
+  cpf VARCHAR(14),
+  logradouro VARCHAR(200),
+  numero VARCHAR(20),
+  bairro VARCHAR(100),
+  cidade VARCHAR(100),
+  estado VARCHAR(2),
+  cep VARCHAR(9),
+  complemento VARCHAR(100),
+  email VARCHAR(200),
+  fone VARCHAR(20),
+  observacao TEXT,
+  situacao VARCHAR(10) DEFAULT 'Ativo',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
+pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -160,6 +188,7 @@ app.use("/tipo-ativos",       tipoAtivosRoutes);
 app.use("/linhas-disponiveis",linhasDisponiveisRoutes);
 app.use("/ativos",            ativosRoutes);
 app.use("/controle-ativos",   controleAtivosRoutes);
+app.use("/funcionarios",      funcionariosRoutes);
 
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 

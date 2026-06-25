@@ -9,6 +9,7 @@ router.get("/", auth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ca.id, ca.nome_funcionario AS "nomeFuncionario", ca.cpf,
+              ca.funcionario_id AS "funcionarioId",
               COUNT(i.id)::int AS "totalItens", ca.created_at AS "createdAt"
          FROM controle_ativos ca
          LEFT JOIN itens_controle_ativos i ON i.controle_ativo_id = ca.id
@@ -19,26 +20,26 @@ router.get("/", auth, async (req, res) => {
 });
 
 router.post("/", auth, async (req, res) => {
-  const { nomeFuncionario, cpf } = req.body;
+  const { nomeFuncionario, cpf, funcionarioId } = req.body;
   if (!nomeFuncionario?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `INSERT INTO controle_ativos (nome_funcionario, cpf) VALUES ($1,$2)
-       RETURNING id, nome_funcionario AS "nomeFuncionario", cpf`,
-      [nomeFuncionario.trim(), cpf||null]
+      `INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3)
+       RETURNING id, nome_funcionario AS "nomeFuncionario", cpf, funcionario_id AS "funcionarioId"`,
+      [nomeFuncionario.trim(), cpf||null, funcionarioId||null]
     );
     res.status(201).json({ ...r.rows[0], totalItens: 0 });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar registro." }); }
 });
 
 router.put("/:id", auth, async (req, res) => {
-  const { nomeFuncionario, cpf } = req.body;
+  const { nomeFuncionario, cpf, funcionarioId } = req.body;
   if (!nomeFuncionario?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `UPDATE controle_ativos SET nome_funcionario=$1, cpf=$2, updated_at=NOW() WHERE id=$3
-       RETURNING id, nome_funcionario AS "nomeFuncionario", cpf`,
-      [nomeFuncionario.trim(), cpf||null, req.params.id]
+      `UPDATE controle_ativos SET nome_funcionario=$1, cpf=$2, funcionario_id=$3, updated_at=NOW() WHERE id=$4
+       RETURNING id, nome_funcionario AS "nomeFuncionario", cpf, funcionario_id AS "funcionarioId"`,
+      [nomeFuncionario.trim(), cpf||null, funcionarioId||null, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Não encontrado." });
     res.json(r.rows[0]);
