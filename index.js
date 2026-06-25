@@ -53,6 +53,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS itens_linhas_faturadas (
   valor_linha VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW()
 )`).catch(()=>{});
+pool.query("ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id)").catch(()=>{});
 pool.query("INSERT INTO screens (id, name, module) VALUES ('s16','Operadoras','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("INSERT INTO screens (id, name, module) VALUES ('s17','Linhas Faturadas','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s16\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's16')").catch(()=>{});

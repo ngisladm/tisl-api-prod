@@ -3,19 +3,20 @@ const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
-// GET /linhas-faturadas — lista com nome da operadora e contagem de itens
+// GET /linhas-faturadas
 router.get("/", auth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT lf.id, lf.mes_ano AS "mesAno",
-              lf.operadora_id AS "operadoraId",
-              o.name AS "operadoraName",
+              lf.operadora_id AS "operadoraId", o.name AS "operadoraName",
+              lf.company_id   AS "companyId",   c.name AS "companyName",
               COUNT(i.id)::int AS "totalItens",
               lf.created_at AS "createdAt"
          FROM linhas_faturadas lf
-         LEFT JOIN operadoras o ON o.id = lf.operadora_id
+         LEFT JOIN operadoras  o ON o.id = lf.operadora_id
+         LEFT JOIN companies   c ON c.id = lf.company_id
          LEFT JOIN itens_linhas_faturadas i ON i.linha_faturada_id = lf.id
-        GROUP BY lf.id, o.name
+        GROUP BY lf.id, o.name, c.name
         ORDER BY lf.mes_ano DESC, o.name`
     );
     res.json(r.rows);
@@ -27,19 +28,21 @@ router.get("/", auth, async (req, res) => {
 
 // POST /linhas-faturadas
 router.post("/", auth, async (req, res) => {
-  const { operadoraId, mesAno } = req.body;
+  const { operadoraId, companyId, mesAno } = req.body;
   if (!operadoraId || !mesAno?.trim())
     return res.status(400).json({ error: "Operadora e Mês/Ano são obrigatórios." });
   try {
     const r = await pool.query(
-      `INSERT INTO linhas_faturadas (operadora_id, mes_ano)
-       VALUES ($1, $2)
-       RETURNING id, operadora_id AS "operadoraId", mes_ano AS "mesAno"`,
-      [operadoraId, mesAno.trim()]
+      `INSERT INTO linhas_faturadas (operadora_id, company_id, mes_ano)
+       VALUES ($1, $2, $3)
+       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno"`,
+      [operadoraId, companyId||null, mesAno.trim()]
     );
     const row = r.rows[0];
     const op = await pool.query("SELECT name FROM operadoras WHERE id=$1", [operadoraId]);
+    const co = companyId ? await pool.query("SELECT name FROM companies WHERE id=$1", [companyId]) : null;
     row.operadoraName = op.rows[0]?.name;
+    row.companyName   = co?.rows[0]?.name || null;
     row.totalItens = 0;
     res.status(201).json(row);
   } catch (err) {
@@ -50,20 +53,22 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /linhas-faturadas/:id
 router.put("/:id", auth, async (req, res) => {
-  const { operadoraId, mesAno } = req.body;
+  const { operadoraId, companyId, mesAno } = req.body;
   if (!operadoraId || !mesAno?.trim())
     return res.status(400).json({ error: "Operadora e Mês/Ano são obrigatórios." });
   try {
     const r = await pool.query(
-      `UPDATE linhas_faturadas SET operadora_id=$1, mes_ano=$2, updated_at=NOW()
-        WHERE id=$3
-       RETURNING id, operadora_id AS "operadoraId", mes_ano AS "mesAno"`,
-      [operadoraId, mesAno.trim(), req.params.id]
+      `UPDATE linhas_faturadas SET operadora_id=$1, company_id=$2, mes_ano=$3, updated_at=NOW()
+        WHERE id=$4
+       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno"`,
+      [operadoraId, companyId||null, mesAno.trim(), req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Linha não encontrada." });
     const row = r.rows[0];
     const op = await pool.query("SELECT name FROM operadoras WHERE id=$1", [operadoraId]);
+    const co = companyId ? await pool.query("SELECT name FROM companies WHERE id=$1", [companyId]) : null;
     row.operadoraName = op.rows[0]?.name;
+    row.companyName   = co?.rows[0]?.name || null;
     res.json(row);
   } catch (err) {
     console.error(err);
@@ -71,7 +76,7 @@ router.put("/:id", auth, async (req, res) => {
   }
 });
 
-// DELETE /linhas-faturadas/:id — cascade deleta os itens
+// DELETE /linhas-faturadas/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
     await pool.query("DELETE FROM itens_linhas_faturadas WHERE linha_faturada_id=$1", [req.params.id]);
@@ -89,10 +94,13 @@ router.get("/:id/itens", auth, async (req, res) => {
     const r = await pool.query(
       `SELECT i.id, i.numero_linha AS "numeroLinha", i.plano,
               i.consumo_linha AS "consumoLinha", i.valor_linha AS "valorLinha",
-              lf.mes_ano AS "mesAno", o.name AS "operadoraName"
+              lf.mes_ano AS "mesAno",
+              o.name AS "operadoraName",
+              c.name AS "companyName"
          FROM itens_linhas_faturadas i
          JOIN linhas_faturadas lf ON lf.id = i.linha_faturada_id
-         JOIN operadoras o ON o.id = lf.operadora_id
+         JOIN operadoras  o ON o.id = lf.operadora_id
+         LEFT JOIN companies c ON c.id = lf.company_id
         WHERE i.linha_faturada_id=$1
         ORDER BY i.numero_linha`,
       [req.params.id]
@@ -104,13 +112,12 @@ router.get("/:id/itens", auth, async (req, res) => {
   }
 });
 
-// POST /linhas-faturadas/:id/itens/importar — bulk insert (substitui todos os itens)
+// POST /linhas-faturadas/:id/itens/importar
 router.post("/:id/itens/importar", auth, async (req, res) => {
   const { itens } = req.body;
   if (!Array.isArray(itens) || itens.length === 0)
     return res.status(400).json({ error: "Nenhum item para importar." });
   try {
-    // Remove itens anteriores e insere os novos
     await pool.query("DELETE FROM itens_linhas_faturadas WHERE linha_faturada_id=$1", [req.params.id]);
     for (const item of itens) {
       await pool.query(
