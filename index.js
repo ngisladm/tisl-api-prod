@@ -15,8 +15,12 @@ const kmValuesRoutes     = require("./routes/km-values");
 const kmRecordsRoutes    = require("./routes/km-records");
 const suppliersRoutes      = require("./routes/suppliers");
 const contractsRoutes      = require("./routes/contracts");
-const operadorasRoutes     = require("./routes/operadoras");
-const linhasFaturadasRoutes= require("./routes/linhas-faturadas");
+const operadorasRoutes        = require("./routes/operadoras");
+const linhasFaturadasRoutes   = require("./routes/linhas-faturadas");
+const tipoAtivosRoutes        = require("./routes/tipo-ativos");
+const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
+const ativosRoutes            = require("./routes/ativos");
+const controleAtivosRoutes    = require("./routes/controle-ativos");
 
 const pool = require("./db");
 const app  = express();
@@ -59,6 +63,60 @@ pool.query("INSERT INTO screens (id, name, module) VALUES ('s17','Linhas Faturad
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s16\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's16')").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s17\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's17')").catch(()=>{});
 
+// Versão 4 — Tipo de Ativo, Linhas Disponíveis, Ativos, Controle de Ativos
+pool.query(`CREATE TABLE IF NOT EXISTS tipo_ativos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS linhas_disponiveis (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id    UUID REFERENCES companies(id),
+  operadora_id  UUID REFERENCES operadoras(id),
+  tipo_ativo_id UUID REFERENCES tipo_ativos(id),
+  numero_linha  VARCHAR(50),
+  status        VARCHAR(20) DEFAULT 'Em análise',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS ativos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome VARCHAR(200) NOT NULL,
+  tipo_ativo_id UUID REFERENCES tipo_ativos(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS controle_ativos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome_funcionario VARCHAR(200) NOT NULL,
+  cpf VARCHAR(14),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS itens_controle_ativos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  controle_ativo_id UUID REFERENCES controle_ativos(id) ON DELETE CASCADE,
+  company_id    UUID REFERENCES companies(id),
+  tipo_ativo_id UUID REFERENCES tipo_ativos(id),
+  operadora_id  UUID REFERENCES operadoras(id),
+  linha_id      UUID REFERENCES linhas_disponiveis(id),
+  imei          VARCHAR(100),
+  ativo_id      UUID REFERENCES ativos(id),
+  numero_serie  VARCHAR(100),
+  numero_documento VARCHAR(100),
+  attachments   JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s18','Tipo de Ativo','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s19','Linhas Disponíveis','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
+["s18","s19","s20","s21"].forEach(s=>{
+  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? '${s}')`).catch(()=>{});
+});
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -72,8 +130,12 @@ app.use("/km-values",     kmValuesRoutes);
 app.use("/km-records",    kmRecordsRoutes);
 app.use("/suppliers",        suppliersRoutes);
 app.use("/contracts",        contractsRoutes);
-app.use("/operadoras",       operadorasRoutes);
-app.use("/linhas-faturadas", linhasFaturadasRoutes);
+app.use("/operadoras",         operadorasRoutes);
+app.use("/linhas-faturadas",  linhasFaturadasRoutes);
+app.use("/tipo-ativos",       tipoAtivosRoutes);
+app.use("/linhas-disponiveis",linhasDisponiveisRoutes);
+app.use("/ativos",            ativosRoutes);
+app.use("/controle-ativos",   controleAtivosRoutes);
 
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 

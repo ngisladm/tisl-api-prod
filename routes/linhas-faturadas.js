@@ -133,4 +133,50 @@ router.post("/:id/itens/importar", auth, async (req, res) => {
   }
 });
 
+// POST /linhas-faturadas/:id/gerar-linhas-disponiveis
+router.post("/:id/gerar-linhas-disponiveis", auth, async (req, res) => {
+  try {
+    // Busca a linha faturada com operadora e empresa
+    const lfResult = await pool.query(
+      `SELECT lf.operadora_id, lf.company_id, o.name AS "operadoraName"
+         FROM linhas_faturadas lf
+         LEFT JOIN operadoras o ON o.id = lf.operadora_id
+        WHERE lf.id=$1`, [req.params.id]
+    );
+    if (!lfResult.rows[0]) return res.status(404).json({ error: "Linha faturada não encontrada." });
+    const { operadora_id, company_id } = lfResult.rows[0];
+
+    // Verifica se existe tipo_ativo "Telefonia"
+    const taResult = await pool.query(
+      "SELECT id FROM tipo_ativos WHERE LOWER(name)='telefonia' LIMIT 1"
+    );
+    if (!taResult.rows[0])
+      return res.status(400).json({ error: "É necessário cadastrar um Tipo de Ativo chamado 'Telefonia' antes de gerar as linhas disponíveis." });
+    const tipoAtivoId = taResult.rows[0].id;
+
+    // Busca itens da linha faturada
+    const itensResult = await pool.query(
+      "SELECT numero_linha FROM itens_linhas_faturadas WHERE linha_faturada_id=$1 AND numero_linha IS NOT NULL",
+      [req.params.id]
+    );
+
+    let inseridos = 0, ignorados = 0;
+    for (const item of itensResult.rows) {
+      // Verifica duplicidade por operadora + numero_linha
+      const existe = await pool.query(
+        "SELECT id FROM linhas_disponiveis WHERE operadora_id=$1 AND numero_linha=$2",
+        [operadora_id, item.numero_linha]
+      );
+      if (existe.rows.length > 0) { ignorados++; continue; }
+      await pool.query(
+        `INSERT INTO linhas_disponiveis (company_id, operadora_id, tipo_ativo_id, numero_linha, status)
+         VALUES ($1,$2,$3,$4,'Em análise')`,
+        [company_id, operadora_id, tipoAtivoId, item.numero_linha]
+      );
+      inseridos++;
+    }
+    res.json({ success: true, inseridos, ignorados, total: itensResult.rows.length });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao gerar linhas disponíveis." }); }
+});
+
 module.exports = router;
