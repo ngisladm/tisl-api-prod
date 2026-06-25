@@ -113,6 +113,29 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s18','Tipo de Ativo','
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s19','Linhas Disponíveis','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
+// Migração colunas itens_controle_ativos v4.1
+[
+  "ALTER TABLE itens_controle_ativos RENAME COLUMN imei TO imei_slot1",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS acesso VARCHAR(200)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS estrutura VARCHAR(200)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS tipo_pacote VARCHAR(50)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS marca VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS modelo VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS imei_slot2 VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS sistema_operacional VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS versao VARCHAR(50)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS processador VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS memoria VARCHAR(50)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS hd VARCHAR(50)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS patrimonio VARCHAR(100)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS valor NUMERIC(12,2)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS data_aquisicao DATE",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS condicao VARCHAR(20)",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS acessorios TEXT",
+  "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS status_ativo VARCHAR(20)",
+].forEach(sql => pool.query(sql).catch(() => {}));
+
 // Garante permissões completas para s18-s21 em todos os perfis
 ["s18","s19","s20","s21"].forEach(s=>{
   pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(()=>{});
