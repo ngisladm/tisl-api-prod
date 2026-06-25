@@ -55,6 +55,27 @@ router.delete("/:id", auth, async (req, res) => {
 
 // ── Itens de Controle de Ativos ───────────────────────────────
 
+// Retorna todos os itens (resumido) para filtros na tela principal
+router.get("/itens/all", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT i.controle_ativo_id AS "controleAtivoId",
+              i.company_id    AS "companyId",    c.name  AS "companyName",
+              i.operadora_id  AS "operadoraId",  o.name  AS "operadoraName",
+              ld.numero_linha AS "numeroLinha",
+              TO_CHAR(i.data_aquisicao,'DD/MM/YYYY') AS "dataAquisicao",
+              i.numero_serie     AS "numeroSerie",
+              i.numero_documento AS "numeroDocumento"
+         FROM itens_controle_ativos i
+         LEFT JOIN companies          c  ON c.id  = i.company_id
+         LEFT JOIN operadoras         o  ON o.id  = i.operadora_id
+         LEFT JOIN linhas_disponiveis ld ON ld.id = i.linha_id
+        ORDER BY i.created_at`
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar itens." }); }
+});
+
 router.get("/:id/itens", auth, async (req, res) => {
   try {
     const r = await pool.query(
