@@ -6,7 +6,7 @@ const sql     = require("mssql");
 
 const mssqlConfig = {
   user:     process.env.MSSQL_USER     || "usr_dados",
-  password: process.env.MSSQL_PASSWORD || "zzzzzz",
+  password: process.env.MSSQL_PASSWORD || "H5{;ha(-F-4u%[`aH$",
   server:   process.env.MSSQL_HOST     || "172.22.0.16",
   // MSSQL_DATABASE: deixe vazio para usar o banco padrão do usuário,
   // ou defina no .env com o nome correto (ex: CORP, TOTVS, RM, etc.)
