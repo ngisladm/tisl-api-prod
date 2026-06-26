@@ -78,25 +78,28 @@ async function syncFuncionarios() {
     let inseridos = 0, atualizados = 0, erros = 0;
     const errosMsgs = [];
 
+    // Converte qualquer tipo (número, null, etc.) para string segura
+    const str = v => (v == null ? "" : String(v)).trim();
+
     for (const row of rows) {
       try {
-        const nome      = (row.NOME          || "").trim();
-        const matricula = (row.CHAPA         || "").trim() || null;
-        const coligada  = (row.NOME_COLIGADA || "").trim() || null;
+        const nome      = str(row.NOME);
+        const matricula = str(row.CHAPA)         || null;
+        const coligada  = str(row.NOME_COLIGADA) || null;
         if (!nome) continue;
 
         const params = [
           nome,
-          (row.CPF            || "").trim() || null,
-          (row.CARTIDENTIDADE || "").trim() || null,
-          (row.LOGRADOURO     || "").trim() || null,
-          (row.NUMERO         || "").trim() || null,
-          (row.COMPLEMENTO    || "").trim() || null,
-          (row.BAIRRO         || "").trim() || null,
-          (row.CIDADE         || "").trim() || null,
-          (row.ESTADO         || "").trim() || null,
-          (row.NOME_CENTRO_CUSTO || "").trim() || null,
-          (row.NOME_FUNCAO       || "").trim() || null,
+          str(row.CPF)             || null,
+          str(row.CARTIDENTIDADE)  || null,
+          str(row.LOGRADOURO)      || null,
+          str(row.NUMERO)          || null,
+          str(row.COMPLEMENTO)     || null,
+          str(row.BAIRRO)          || null,
+          str(row.CIDADE)          || null,
+          str(row.ESTADO)          || null,
+          str(row.NOME_CENTRO_CUSTO) || null,
+          str(row.NOME_FUNCAO)       || null,
           matricula,
           coligada,
         ];
@@ -157,6 +160,24 @@ router.post("/funcionarios", auth, async (req, res) => {
     const detail = err.originalError?.message || err.message;
     console.error("Erro no sync:", detail);
     res.status(500).json({ error: detail });
+  }
+});
+
+// Endpoint de debug: mostra os 3 primeiros registros do SQL Server (tipos e valores)
+router.get("/debug", auth, async (req, res) => {
+  let conn;
+  try {
+    conn = await new sql.ConnectionPool(mssqlConfig).connect();
+    const r = await conn.request().query(QUERY_SQL + " ORDER BY f.NOME OFFSET 0 ROWS FETCH NEXT 3 ROWS ONLY");
+    const rows = r.recordset.slice(0, 3).map(row =>
+      Object.fromEntries(Object.entries(row).map(([k,v]) => [k, { valor: v, tipo: typeof v }]))
+    );
+    res.json({ ok: true, amostra: rows });
+  } catch (err) {
+    const detail = err.originalError?.message || err.message;
+    res.status(500).json({ ok: false, erro: detail });
+  } finally {
+    if (conn) await conn.close().catch(() => {});
   }
 });
 
