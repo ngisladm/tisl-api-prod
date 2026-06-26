@@ -34,7 +34,6 @@ SELECT DISTINCT
     f.BAIRRO,
     f.CIDADE,
     f.ESTADO,
-    f.CEP,
     cc.CODCCUSTO + ' - ' + cc.NOME AS NOME_CENTRO_CUSTO,
     fc.NOME AS NOME_FUNCAO,
     c.NOME AS NOME_COLIGADA
@@ -95,7 +94,6 @@ async function syncFuncionarios() {
           (row.BAIRRO         || "").trim() || null,
           (row.CIDADE         || "").trim() || null,
           (row.ESTADO         || "").trim() || null,
-          (row.CEP            || "").trim() || null,
           (row.NOME_CENTRO_CUSTO || "").trim() || null,
           (row.NOME_FUNCAO       || "").trim() || null,
           matricula,
@@ -113,11 +111,11 @@ async function syncFuncionarios() {
             `UPDATE funcionarios SET
                nome=$1, cpf=$2, rg=$3,
                logradouro=$4, numero=$5, complemento=$6,
-               bairro=$7, cidade=$8, estado=$9, cep=$10,
-               centro_custo=$11, cargo=$12,
-               matricula=$13, coligada=$14,
+               bairro=$7, cidade=$8, estado=$9,
+               centro_custo=$10, cargo=$11,
+               matricula=$12, coligada=$13,
                situacao='Ativo', updated_at=NOW()
-             WHERE id=$15`,
+             WHERE id=$14`,
             [...params, check.rows[0].id]
           );
           atualizados++;
@@ -125,9 +123,9 @@ async function syncFuncionarios() {
           await pool.query(
             `INSERT INTO funcionarios
                (nome, cpf, rg, logradouro, numero, complemento,
-                bairro, cidade, estado, cep, centro_custo, cargo,
+                bairro, cidade, estado, centro_custo, cargo,
                 matricula, coligada, situacao)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Ativo')`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Ativo')`,
             params
           );
           inseridos++;
