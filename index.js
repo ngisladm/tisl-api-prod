@@ -171,6 +171,14 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
 pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
 pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(()=>{});
+// Ampliar colunas para comportar dados do SQL Server externo
+pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN cpf TYPE VARCHAR(30)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN centro_custo TYPE VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN cargo TYPE VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(()=>{});
 
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);

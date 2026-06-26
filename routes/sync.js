@@ -76,6 +76,7 @@ async function syncFuncionarios() {
     console.log(`📋 ${rows.length} registro(s) recebido(s) do SQL Server.`);
 
     let inseridos = 0, atualizados = 0, erros = 0;
+    const errosMsgs = [];
 
     for (const row of rows) {
       try {
@@ -131,12 +132,14 @@ async function syncFuncionarios() {
           inseridos++;
         }
       } catch (rowErr) {
-        console.error("Erro ao processar linha:", row.NOME, rowErr.message);
+        const msg = rowErr.message;
+        console.error("Erro ao processar linha:", row.NOME, msg);
+        if (errosMsgs.length < 5) errosMsgs.push(`[${row.NOME}] ${msg}`);
         erros++;
       }
     }
 
-    const resumo = { total: rows.length, inseridos, atualizados, erros };
+    const resumo = { total: rows.length, inseridos, atualizados, erros, errosMsgs };
     console.log(`✅ Sync concluído:`, resumo);
     return resumo;
   } finally {
