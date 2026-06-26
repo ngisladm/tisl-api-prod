@@ -8,10 +8,14 @@ const mssqlConfig = {
   user:     process.env.MSSQL_USER     || "usr_dados",
   password: process.env.MSSQL_PASSWORD || "zzzzzz",
   server:   process.env.MSSQL_HOST     || "172.22.0.16",
-  database: process.env.MSSQL_DATABASE || "RM",
+  // MSSQL_DATABASE: deixe vazio para usar o banco padrão do usuário,
+  // ou defina no .env com o nome correto (ex: CORP, TOTVS, RM, etc.)
+  ...(process.env.MSSQL_DATABASE ? { database: process.env.MSSQL_DATABASE } : {}),
+  port: parseInt(process.env.MSSQL_PORT || "1433"),
   options: {
     encrypt: false,
     trustServerCertificate: true,
+    enableArithAbort: true,
     connectTimeout: 30000,
     requestTimeout: 60000,
   },
@@ -149,8 +153,24 @@ router.post("/funcionarios", auth, async (req, res) => {
     const result = await syncFuncionarios();
     res.json({ success: true, ...result });
   } catch (err) {
-    console.error("Erro no sync:", err.message);
-    res.status(500).json({ error: err.message });
+    const detail = err.originalError?.message || err.message;
+    console.error("Erro no sync:", detail);
+    res.status(500).json({ error: detail });
+  }
+});
+
+// Endpoint de teste de conexão (não faz sync, só valida credenciais)
+router.get("/teste", auth, async (req, res) => {
+  let conn;
+  try {
+    conn = await new sql.ConnectionPool(mssqlConfig).connect();
+    const r = await conn.request().query("SELECT @@VERSION AS versao, DB_NAME() AS banco");
+    res.json({ ok: true, versao: r.recordset[0].versao, banco: r.recordset[0].banco });
+  } catch (err) {
+    const detail = err.originalError?.message || err.message;
+    res.status(500).json({ ok: false, erro: detail, config: { server: mssqlConfig.server, user: mssqlConfig.user, database: mssqlConfig.database || "(padrão do usuário)" } });
+  } finally {
+    if (conn) await conn.close().catch(() => {});
   }
 });
 
