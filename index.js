@@ -22,6 +22,8 @@ const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
 const ativosRoutes            = require("./routes/ativos");
 const controleAtivosRoutes    = require("./routes/controle-ativos");
 const funcionariosRoutes      = require("./routes/funcionarios");
+const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
+const cron                    = require("node-cron");
 
 const pool = require("./db");
 const app  = express();
@@ -168,6 +170,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS funcionarios (
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
 pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(()=>{});
 
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
@@ -189,10 +192,17 @@ app.use("/linhas-disponiveis",linhasDisponiveisRoutes);
 app.use("/ativos",            ativosRoutes);
 app.use("/controle-ativos",   controleAtivosRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
+app.use("/sync",              syncRoutes);
 
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 
 app.listen(PORT, () => {
   console.log(`🚀 API rodando em http://localhost:${PORT}`);
 });
+
+// Sync automático de funcionários: 06:00 e 18:00 todos os dias
+cron.schedule("0 6,18 * * *", () => {
+  console.log("⏰ Sync agendado de funcionários iniciado...");
+  syncFuncionarios().catch(err => console.error("Erro no sync agendado:", err.message));
+}, { timezone: "America/Sao_Paulo" });
 // test auto-deploy
