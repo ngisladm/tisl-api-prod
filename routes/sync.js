@@ -78,8 +78,8 @@ async function syncFuncionarios() {
     let inseridos = 0, atualizados = 0, erros = 0;
     const errosMsgs = [];
 
-    // Converte qualquer tipo (número, null, etc.) para string segura
-    const str = v => (v == null ? "" : String(v)).trim();
+    // Converte qualquer tipo para string segura, removendo bytes nulos e caracteres de controle
+    const str = v => (v == null ? "" : String(v)).replace(/\0/g, "").trim();
 
     for (const row of rows) {
       try {
