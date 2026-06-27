@@ -214,6 +214,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (
 )`).catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s23','Modelos de Contrato','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s23\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's23')").catch(()=>{});
+pool.query("ALTER TABLE modelos_contrato ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES companies(id)").catch(()=>{});
 
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});

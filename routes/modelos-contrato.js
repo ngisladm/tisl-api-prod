@@ -7,9 +7,11 @@ const auth    = require("../middleware/auth");
 router.get("/", auth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT mc.id, mc.nome, mc.tipo_ativo_id AS "tipoAtivoId", ta.name AS "tipoAtivoName"
+      `SELECT mc.id, mc.nome, mc.tipo_ativo_id AS "tipoAtivoId", ta.name AS "tipoAtivoName",
+              mc.empresa_id AS "empresaId", c.name AS "empresaName"
          FROM modelos_contrato mc
          LEFT JOIN tipo_ativos ta ON ta.id = mc.tipo_ativo_id
+         LEFT JOIN companies   c  ON c.id  = mc.empresa_id
         ORDER BY mc.nome`
     );
     res.json(r.rows);
@@ -18,35 +20,33 @@ router.get("/", auth, async (req, res) => {
 
 // POST /modelos-contrato
 router.post("/", auth, async (req, res) => {
-  const { nome, tipoAtivoId } = req.body;
+  const { nome, tipoAtivoId, empresaId } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do modelo é obrigatório." });
   try {
     const r = await pool.query(
-      `INSERT INTO modelos_contrato (nome, tipo_ativo_id)
-       VALUES ($1,$2)
-       RETURNING id, nome, tipo_ativo_id AS "tipoAtivoId"`,
-      [nome.trim(), tipoAtivoId || null]
+      `INSERT INTO modelos_contrato (nome, tipo_ativo_id, empresa_id)
+       VALUES ($1,$2,$3)
+       RETURNING id, nome, tipo_ativo_id AS "tipoAtivoId", empresa_id AS "empresaId"`,
+      [nome.trim(), tipoAtivoId || null, empresaId || null]
     );
-    res.status(201).json({ ...r.rows[0], tipoAtivoName: null });
+    res.status(201).json({ ...r.rows[0], tipoAtivoName: null, empresaName: null });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar modelo." }); }
 });
 
 // PUT /modelos-contrato/:id
 router.put("/:id", auth, async (req, res) => {
-  const { nome, tipoAtivoId } = req.body;
+  const { nome, tipoAtivoId, empresaId } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do modelo é obrigatório." });
   try {
     const r = await pool.query(
-      `UPDATE modelos_contrato SET nome=$1, tipo_ativo_id=$2, updated_at=NOW() WHERE id=$3
-       RETURNING id, nome, tipo_ativo_id AS "tipoAtivoId"`,
-      [nome.trim(), tipoAtivoId || null, req.params.id]
+      `UPDATE modelos_contrato SET nome=$1, tipo_ativo_id=$2, empresa_id=$3, updated_at=NOW() WHERE id=$4
+       RETURNING id, nome, tipo_ativo_id AS "tipoAtivoId", empresa_id AS "empresaId"`,
+      [nome.trim(), tipoAtivoId || null, empresaId || null, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Modelo não encontrado." });
-    // Re-fetch tipoAtivoName
-    const ta = tipoAtivoId
-      ? await pool.query("SELECT name FROM tipo_ativos WHERE id=$1", [tipoAtivoId])
-      : { rows: [] };
-    res.json({ ...r.rows[0], tipoAtivoName: ta.rows[0]?.name || null });
+    const ta = tipoAtivoId ? await pool.query("SELECT name FROM tipo_ativos WHERE id=$1", [tipoAtivoId]) : { rows: [] };
+    const co = empresaId   ? await pool.query("SELECT name FROM companies  WHERE id=$1", [empresaId])   : { rows: [] };
+    res.json({ ...r.rows[0], tipoAtivoName: ta.rows[0]?.name || null, empresaName: co.rows[0]?.name || null });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar modelo." }); }
 });
 
