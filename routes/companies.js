@@ -16,6 +16,34 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// GET /companies/:id/logo
+router.get("/:id/logo", auth, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT logo FROM companies WHERE id=$1", [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ error: "Empresa não encontrada." });
+    res.json({ logo: result.rows[0].logo || null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar logo." });
+  }
+});
+
+// PUT /companies/:id/logo
+router.put("/:id/logo", auth, async (req, res) => {
+  const { logo } = req.body;
+  try {
+    const result = await pool.query(
+      "UPDATE companies SET logo=$1 WHERE id=$2 RETURNING id",
+      [logo || null, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Empresa não encontrada." });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao salvar logo." });
+  }
+});
+
 // POST /companies
 router.post("/", auth, async (req, res) => {
   const { name, cnpj, active = true } = req.body;

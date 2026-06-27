@@ -22,6 +22,7 @@ const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
 const ativosRoutes            = require("./routes/ativos");
 const controleAtivosRoutes    = require("./routes/controle-ativos");
 const funcionariosRoutes      = require("./routes/funcionarios");
+const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
 const cron                    = require("node-cron");
 
@@ -171,6 +172,19 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
 pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
 pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(()=>{});
+// Versão 6 — Logo de empresas e Modelos de Contrato
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo TEXT").catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome VARCHAR(200) NOT NULL,
+  tipo_ativo_id UUID REFERENCES tipo_ativos(id),
+  conteudo TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s23','Modelos de Contrato','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s23\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's23')").catch(()=>{});
+
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});
 pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(()=>{});
@@ -200,6 +214,7 @@ app.use("/linhas-disponiveis",linhasDisponiveisRoutes);
 app.use("/ativos",            ativosRoutes);
 app.use("/controle-ativos",   controleAtivosRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
+app.use("/modelos-contrato",  modelosContratoRoutes);
 app.use("/sync",              syncRoutes);
 
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
