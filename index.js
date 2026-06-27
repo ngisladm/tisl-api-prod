@@ -172,6 +172,36 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
 pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
 pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(()=>{});
+// Versão 6 — Campos extras em Empresas, Fornecedores, Operadoras; Apelido em Usuários
+// Companies
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS representante_legal VARCHAR(300)").catch(()=>{});
+// Suppliers
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(()=>{});
+// Operadoras
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)").catch(()=>{});
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(20)").catch(()=>{});
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_email VARCHAR(200)").catch(()=>{});
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS observacao TEXT").catch(()=>{});
+// Users — apelido
+pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS apelido VARCHAR(100)").catch(()=>{});
+
 // Versão 6 — Logo de empresas e Modelos de Contrato
 pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo TEXT").catch(()=>{});
 pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (

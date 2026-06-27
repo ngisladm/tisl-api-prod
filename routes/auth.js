@@ -13,7 +13,7 @@ router.post("/login", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.name, u.email, u.password_hash, u.active,
+      `SELECT u.id, u.name, u.apelido, u.email, u.password_hash, u.active,
               u.profile_id AS "profileId", u.company_id AS "companyId",
               u.is_master  AS "isMaster",
               u.avatar,
@@ -40,6 +40,7 @@ router.post("/login", async (req, res) => {
       {
         id:        user.id,
         name:      user.name,
+        apelido:   user.apelido || null,
         email:     user.email,
         profileId: user.profileId,
         companyId: user.companyId,
@@ -54,6 +55,7 @@ router.post("/login", async (req, res) => {
       user: {
         id:          user.id,
         name:        user.name,
+        apelido:     user.apelido || null,
         email:       user.email,
         profileId:   user.profileId,
         companyId:   user.companyId,

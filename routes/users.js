@@ -8,7 +8,7 @@ const auth    = require("../middleware/auth");
 router.get("/me", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, email, avatar FROM users WHERE id=$1`,
+      `SELECT id, name, apelido, email, avatar FROM users WHERE id=$1`,
       [req.user.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Usuário não encontrado." });
@@ -19,15 +19,15 @@ router.get("/me", auth, async (req, res) => {
   }
 });
 
-// PUT /users/me — atualizar nome e/ou avatar
+// PUT /users/me — atualizar nome, apelido e/ou avatar
 router.put("/me", auth, async (req, res) => {
-  const { name, avatar } = req.body;
+  const { name, apelido, avatar } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   try {
     const result = await pool.query(
-      `UPDATE users SET name=$1, avatar=$2, updated_at=NOW() WHERE id=$3
-       RETURNING id, name, email, avatar`,
-      [name.trim(), avatar || null, req.user.id]
+      `UPDATE users SET name=$1, apelido=$2, avatar=$3, updated_at=NOW() WHERE id=$4
+       RETURNING id, name, apelido, email, avatar`,
+      [name.trim(), apelido||null, avatar || null, req.user.id]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -61,7 +61,7 @@ router.put("/me/password", auth, async (req, res) => {
 router.get("/", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.id, u.name, u.email, u.active,
+      `SELECT u.id, u.name, u.apelido, u.email, u.active,
               u.profile_id  AS "profileId",
               u.company_id  AS "companyId",
               u.team_id     AS "teamId",
@@ -84,7 +84,7 @@ router.get("/", auth, async (req, res) => {
 
 // POST /users
 router.post("/", auth, async (req, res) => {
-  const { name, email, password, profileId, companyId, teamId, active = true, isMaster = false } = req.body;
+  const { name, apelido, email, password, profileId, companyId, teamId, active = true, isMaster = false } = req.body;
   if (!name?.trim() || !email?.trim())
     return res.status(400).json({ error: "Nome e e-mail são obrigatórios." });
   if (!password?.trim())
@@ -92,13 +92,13 @@ router.post("/", auth, async (req, res) => {
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, profile_id, company_id, team_id, active, is_master)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, name, email, active, is_master AS "isMaster",
+      `INSERT INTO users (name, apelido, email, password_hash, profile_id, company_id, team_id, active, is_master)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, name, apelido, email, active, is_master AS "isMaster",
                  profile_id AS "profileId",
                  company_id AS "companyId",
                  team_id    AS "teamId"`,
-      [name.trim(), email.trim().toLowerCase(), hash, profileId||null, companyId||null, teamId||null, active, isMaster]
+      [name.trim(), apelido||null, email.trim().toLowerCase(), hash, profileId||null, companyId||null, teamId||null, active, isMaster]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -110,22 +110,22 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /users/:id
 router.put("/:id", auth, async (req, res) => {
-  const { name, email, password, profileId, companyId, teamId, active, isMaster } = req.body;
+  const { name, apelido, email, password, profileId, companyId, teamId, active, isMaster } = req.body;
   if (!name?.trim() || !email?.trim())
     return res.status(400).json({ error: "Nome e e-mail são obrigatórios." });
   try {
     let query, params;
     if (password?.trim()) {
       const hash = await bcrypt.hash(password, 10);
-      query  = `UPDATE users SET name=$1, email=$2, password_hash=$3, profile_id=$4, company_id=$5, team_id=$6, active=$7, is_master=$8
-                 WHERE id=$9
-                RETURNING id, name, email, active, is_master AS "isMaster", profile_id AS "profileId", company_id AS "companyId", team_id AS "teamId"`;
-      params = [name.trim(), email.trim().toLowerCase(), hash, profileId||null, companyId||null, teamId||null, active, isMaster||false, req.params.id];
+      query  = `UPDATE users SET name=$1, apelido=$2, email=$3, password_hash=$4, profile_id=$5, company_id=$6, team_id=$7, active=$8, is_master=$9
+                 WHERE id=$10
+                RETURNING id, name, apelido, email, active, is_master AS "isMaster", profile_id AS "profileId", company_id AS "companyId", team_id AS "teamId"`;
+      params = [name.trim(), apelido||null, email.trim().toLowerCase(), hash, profileId||null, companyId||null, teamId||null, active, isMaster||false, req.params.id];
     } else {
-      query  = `UPDATE users SET name=$1, email=$2, profile_id=$3, company_id=$4, team_id=$5, active=$6, is_master=$7
-                 WHERE id=$8
-                RETURNING id, name, email, active, is_master AS "isMaster", profile_id AS "profileId", company_id AS "companyId", team_id AS "teamId"`;
-      params = [name.trim(), email.trim().toLowerCase(), profileId||null, companyId||null, teamId||null, active, isMaster||false, req.params.id];
+      query  = `UPDATE users SET name=$1, apelido=$2, email=$3, profile_id=$4, company_id=$5, team_id=$6, active=$7, is_master=$8
+                 WHERE id=$9
+                RETURNING id, name, apelido, email, active, is_master AS "isMaster", profile_id AS "profileId", company_id AS "companyId", team_id AS "teamId"`;
+      params = [name.trim(), apelido||null, email.trim().toLowerCase(), profileId||null, companyId||null, teamId||null, active, isMaster||false, req.params.id];
     }
     const result = await pool.query(query, params);
     if (!result.rows[0]) return res.status(404).json({ error: "Usuário não encontrado." });
