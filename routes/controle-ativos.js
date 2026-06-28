@@ -23,6 +23,12 @@ router.post("/", auth, async (req, res) => {
   const { nomeFuncionario, cpf, funcionarioId } = req.body;
   if (!nomeFuncionario?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
   try {
+    // Unique funcionário: each employee can only have one controle_ativo record
+    if (funcionarioId) {
+      const dup = await pool.query("SELECT id FROM controle_ativos WHERE funcionario_id=$1 LIMIT 1", [funcionarioId]);
+      if (dup.rows.length > 0)
+        return res.status(400).json({ error: "Este funcionário já possui um registro de Controle de Ativos." });
+    }
     const r = await pool.query(
       `INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3)
        RETURNING id, nome_funcionario AS "nomeFuncionario", cpf, funcionario_id AS "funcionarioId"`,
@@ -75,6 +81,38 @@ router.get("/itens/all", auth, async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar itens." }); }
+});
+
+// Retorna todos os itens com info completa para relatórios
+router.get("/itens/relatorio", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT ca.nome_funcionario AS "nomeFuncionario", ca.cpf, ca.funcionario_id AS "funcionarioId",
+              i.id,
+              i.company_id    AS "companyId",    c.name  AS "companyName",
+              i.tipo_ativo_id AS "tipoAtivoId",  ta.name AS "tipoAtivoName",
+              i.ativo_id      AS "ativoId",       a.nome  AS "ativoNome",
+              i.marca, i.modelo, i.imei_slot1 AS "imeiSlot1", i.imei_slot2 AS "imeiSlot2",
+              i.numero_serie     AS "numeroSerie",
+              i.numero_documento AS "numeroDocumento",
+              i.sistema_operacional AS "sistemaOperacional", i.versao, i.processador,
+              i.memoria, i.hd, i.patrimonio,
+              i.valor, TO_CHAR(i.data_aquisicao,'DD/MM/YYYY') AS "dataAquisicao",
+              i.condicao, i.acessorios, i.status_ativo AS "statusAtivo",
+              i.operadora_id  AS "operadoraId",  o.name  AS "operadoraName",
+              i.linha_id      AS "linhaId",       ld.numero_linha AS "numeroLinha",
+              i.iccid, i.acesso, i.estrutura, i.tipo_pacote AS "tipoPacote"
+         FROM itens_controle_ativos i
+         JOIN controle_ativos ca ON ca.id = i.controle_ativo_id
+         LEFT JOIN companies          c  ON c.id  = i.company_id
+         LEFT JOIN tipo_ativos        ta ON ta.id = i.tipo_ativo_id
+         LEFT JOIN ativos             a  ON a.id  = i.ativo_id
+         LEFT JOIN operadoras         o  ON o.id  = i.operadora_id
+         LEFT JOIN linhas_disponiveis ld ON ld.id = i.linha_id
+        ORDER BY ca.nome_funcionario, ta.name, a.nome`
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar dados." }); }
 });
 
 router.get("/:id/itens", auth, async (req, res) => {

@@ -88,6 +88,25 @@ router.delete("/:id", auth, async (req, res) => {
   }
 });
 
+// GET /linhas-faturadas/relatorio — todos os itens com info completa para relatórios
+router.get("/relatorio", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT i.id, i.numero_linha AS "numeroLinha", i.plano,
+              i.consumo_linha AS "consumoLinha", i.valor_linha AS "valorLinha",
+              lf.mes_ano AS "mesAno",
+              lf.operadora_id AS "operadoraId", o.name AS "operadoraName",
+              lf.company_id AS "companyId", c.name AS "companyName"
+         FROM itens_linhas_faturadas i
+         JOIN linhas_faturadas lf ON lf.id = i.linha_faturada_id
+         JOIN operadoras o ON o.id = lf.operadora_id
+         LEFT JOIN companies c ON c.id = lf.company_id
+        ORDER BY c.name, o.name, lf.mes_ano, i.numero_linha`
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar dados." }); }
+});
+
 // GET /linhas-faturadas/itens/all — resumo de todos os itens para filtros na tela principal
 router.get("/itens/all", auth, async (req, res) => {
   try {

@@ -215,6 +215,14 @@ pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s23','Modelos de Contrato','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s23\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's23')").catch(()=>{});
 pool.query("ALTER TABLE modelos_contrato ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES companies(id)").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s24','Relatório de Análise de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s24\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's24')").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s25','Relatório de Resumo de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s25\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's25')").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s26','Resumo de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s26\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's26')").catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s27','Inventário de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s27\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's27')").catch(()=>{});
 
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});
