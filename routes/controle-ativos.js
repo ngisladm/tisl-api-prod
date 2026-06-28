@@ -176,6 +176,146 @@ router.delete("/:id/itens/:itemId", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir item." }); }
 });
 
+// ── Carga Inicial ─────────────────────────────────────────────
+// POST /controle-ativos/carga-inicial
+// CSV cols (1-based):
+//  1=CPF, 2=TipoAtivo, 3=Empresa,
+//  Não-Telefonia: 4=NomeAtivo,5=Marca,6=Modelo,7=Serie,8=SO,9=Versao,10=Proc,11=Mem,12=HD,13=Patrimonio,14=NrDoc,15=Valor,16=DataAq,17=Condicao,18=Acessorios,19=Status
+//  Telefonia: 20=Marca,21=Modelo,22=IMEI1,23=IMEI2,24=Operadora,25=NrLinha,26=Acesso,27=Estrutura,28=ICCID,29=TipoPacote
+router.post("/carga-inicial", auth, async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha recebida." });
+
+  let inseridos = 0;
+  const erros = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const c = rows[i];
+    const linhaNum = i + 1;
+    const cpf = c[0]?.trim() || "";
+    const tipoAtivoNome = c[1]?.trim() || "";
+    const empresaNome   = c[2]?.trim() || "";
+
+    if (!cpf) { erros.push({ linha: linhaNum, msg: "CPF ausente." }); continue; }
+
+    try {
+      // 1. Busca funcionário pelo CPF (remove formatação)
+      const cpfDigits = cpf.replace(/\D/g, "");
+      const funcRes = await pool.query(
+        `SELECT id, nome, cpf FROM funcionarios WHERE regexp_replace(cpf,'[^0-9]','','g')=$1 LIMIT 1`,
+        [cpfDigits]
+      );
+      const func = funcRes.rows[0];
+      if (!func) { erros.push({ linha: linhaNum, msg: `Funcionário com CPF "${cpf}" não encontrado.` }); continue; }
+
+      // 2. Cria controle_ativo
+      const caRes = await pool.query(
+        `INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3) RETURNING id`,
+        [func.nome, func.cpf, func.id]
+      );
+      const controleAtivoId = caRes.rows[0].id;
+
+      // 3. Resolve tipo_ativo e empresa
+      const [taRes, coRes] = await Promise.all([
+        tipoAtivoNome ? pool.query("SELECT id, name FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]) : { rows: [] },
+        empresaNome   ? pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) AND active=true LIMIT 1", [empresaNome]) : { rows: [] },
+      ]);
+      const tipoAtivoId = taRes.rows[0]?.id || null;
+      const tipoAtivoNameDB = taRes.rows[0]?.name || tipoAtivoNome;
+      const companyId   = coRes.rows[0]?.id || null;
+
+      const isTel = tipoAtivoNameDB.toLowerCase() === "telefonia";
+      let itemData = { controle_ativo_id: controleAtivoId, company_id: companyId, tipo_ativo_id: tipoAtivoId };
+
+      if (isTel) {
+        // Telefonia
+        const marcaT    = c[19]?.trim() || null;
+        const modeloT   = c[20]?.trim() || null;
+        const imei1     = c[21]?.trim() || null;
+        const imei2     = c[22]?.trim() || null;
+        const opNome    = c[23]?.trim() || null;
+        const nrLinha   = c[24]?.trim() || null;
+        const acesso    = c[25]?.trim() || null;
+        const estrutura = c[26]?.trim() || null;
+        const iccid     = c[27]?.trim() || null;
+        const tipoPacote= c[28]?.trim() || null;
+
+        const opRes  = opNome  ? await pool.query("SELECT id FROM operadoras WHERE LOWER(name)=LOWER($1) LIMIT 1", [opNome])  : { rows: [] };
+        const operadoraId = opRes.rows[0]?.id || null;
+
+        // Tenta vincular linha disponível
+        let linhaId = null;
+        if (nrLinha && operadoraId) {
+          const ldRes = await pool.query(
+            "SELECT id FROM linhas_disponiveis WHERE numero_linha=$1 AND operadora_id=$2 LIMIT 1",
+            [nrLinha, operadoraId]
+          );
+          linhaId = ldRes.rows[0]?.id || null;
+        }
+
+        await pool.query(
+          `INSERT INTO itens_controle_ativos
+             (controle_ativo_id, company_id, tipo_ativo_id, operadora_id, linha_id,
+              marca, modelo, imei_slot1, imei_slot2, acesso, estrutura, iccid, tipo_pacote, attachments)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'[]')`,
+          [controleAtivoId, companyId, tipoAtivoId, operadoraId, linhaId,
+           marcaT, modeloT, imei1, imei2, acesso, estrutura, iccid, tipoPacote]
+        );
+      } else {
+        // Não-Telefonia
+        const nomeAtivo  = c[3]?.trim() || null;
+        const marca      = c[4]?.trim() || null;
+        const modelo     = c[5]?.trim() || null;
+        const serie      = c[6]?.trim() || null;
+        const so         = c[7]?.trim() || null;
+        const versao     = c[8]?.trim() || null;
+        const proc       = c[9]?.trim() || null;
+        const mem        = c[10]?.trim() || null;
+        const hd         = c[11]?.trim() || null;
+        const patr       = c[12]?.trim() || null;
+        const nrDoc      = c[13]?.trim() || null;
+        const valor      = c[14]?.trim() || null;
+        const dataAq     = c[15]?.trim() || null;
+        const condicao   = c[16]?.trim() || null;
+        const acessorios = c[17]?.trim() || null;
+        const status     = c[18]?.trim() || null;
+
+        // Resolve ativo por nome
+        let ativoId = null;
+        if (nomeAtivo) {
+          const atRes = await pool.query("SELECT id FROM ativos WHERE LOWER(nome)=LOWER($1) AND tipo_ativo_id IS NOT DISTINCT FROM $2 LIMIT 1", [nomeAtivo, tipoAtivoId]);
+          if (atRes.rows[0]) ativoId = atRes.rows[0].id;
+          else {
+            // Cria o ativo se não existir
+            const newAt = await pool.query("INSERT INTO ativos (nome, tipo_ativo_id) VALUES ($1,$2) RETURNING id", [nomeAtivo, tipoAtivoId]);
+            ativoId = newAt.rows[0].id;
+          }
+        }
+
+        await pool.query(
+          `INSERT INTO itens_controle_ativos
+             (controle_ativo_id, company_id, tipo_ativo_id, ativo_id,
+              marca, modelo, numero_serie, sistema_operacional, versao,
+              processador, memoria, hd, patrimonio, numero_documento,
+              valor, data_aquisicao, condicao, acessorios, status_ativo, attachments)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'[]')`,
+          [controleAtivoId, companyId, tipoAtivoId, ativoId,
+           marca, modelo, serie, so, versao,
+           proc, mem, hd, patr, nrDoc,
+           valor||null, parseDate(dataAq), condicao, acessorios, status]
+        );
+      }
+
+      inseridos++;
+    } catch (e) {
+      erros.push({ linha: linhaNum, msg: e.message });
+    }
+  }
+
+  res.json({ inseridos, erros });
+});
+
 // ── Anexos ────────────────────────────────────────────────────
 
 router.put("/:id/itens/:itemId/anexos", auth, async (req, res) => {

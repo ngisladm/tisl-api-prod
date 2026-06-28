@@ -55,6 +55,59 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar linha disponível." }); }
 });
 
+// POST /linhas-disponiveis/carga-inicial
+// CSV cols: 1=Operadora, 2=NumeroLinha, 3=Empresa, 4=TipoAtivo, 5=Status
+router.post("/carga-inicial", auth, async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha recebida." });
+
+  let inseridos = 0, ignorados = 0;
+  const erros = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const cols = rows[i];
+    const [operadoraNome, numeroLinha, empresaNome, tipoAtivoNome, statusVal] = cols;
+    const linhaNum = i + 1;
+
+    if (!operadoraNome?.trim() || !numeroLinha?.trim()) {
+      erros.push({ linha: linhaNum, msg: "Operadora e Número da Linha são obrigatórios." });
+      continue;
+    }
+
+    try {
+      // Resolve IDs por nome
+      const [opRes, coRes, taRes] = await Promise.all([
+        pool.query("SELECT id FROM operadoras WHERE LOWER(name)=LOWER($1) LIMIT 1", [operadoraNome.trim()]),
+        empresaNome?.trim() ? pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) AND active=true LIMIT 1", [empresaNome.trim()]) : { rows: [] },
+        tipoAtivoNome?.trim() ? pool.query("SELECT id FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome.trim()]) : { rows: [] },
+      ]);
+
+      const operadoraId = opRes.rows[0]?.id || null;
+      const companyId   = coRes.rows[0]?.id || null;
+      const tipoAtivoId = taRes.rows[0]?.id || null;
+
+      // Verifica duplicata: mesma operadora + mesmo numero_linha
+      const dup = await pool.query(
+        `SELECT id FROM linhas_disponiveis WHERE numero_linha=$1 AND operadora_id IS NOT DISTINCT FROM $2 LIMIT 1`,
+        [numeroLinha.trim(), operadoraId]
+      );
+      if (dup.rows.length > 0) { ignorados++; continue; }
+
+      await pool.query(
+        `INSERT INTO linhas_disponiveis (company_id, operadora_id, tipo_ativo_id, numero_linha, status)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [companyId, operadoraId, tipoAtivoId, numeroLinha.trim(), statusVal?.trim() || "Em análise"]
+      );
+      inseridos++;
+    } catch (e) {
+      erros.push({ linha: linhaNum, msg: e.message });
+    }
+  }
+
+  res.json({ inseridos, ignorados, erros });
+});
+
 // DELETE /linhas-disponiveis/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
