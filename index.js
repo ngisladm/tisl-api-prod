@@ -36,6 +36,9 @@ const app  = express();
 const migrate = sql => pool.query(sql).catch(err => logger.error("[migration]", err.message));
 const PORT = process.env.PORT || 3001;
 
+// Informa ao Express que está atrás de um proxy reverso (GoCache/nginx)
+app.set("trust proxy", 1);
+
 // Helmet — headers de segurança (CSP desabilitado para compatibilidade React)
 app.use(helmet({ contentSecurityPolicy: false }));
 
