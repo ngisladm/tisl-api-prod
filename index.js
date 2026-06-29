@@ -24,6 +24,8 @@ const controleAtivosRoutes    = require("./routes/controle-ativos");
 const funcionariosRoutes      = require("./routes/funcionarios");
 const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
+const emailConfigRoutes = require("./routes/email-config");
+const emailRoutes       = require("./routes/email");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -223,6 +225,15 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s26','Resumo de Ativos
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s26\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's26')").catch(()=>{});
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s27','Inventário de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s27\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's27')").catch(()=>{});
+pool.query(`CREATE TABLE IF NOT EXISTS email_config (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  host VARCHAR(255), port INTEGER DEFAULT 587, secure BOOLEAN DEFAULT false,
+  user_email VARCHAR(255), password VARCHAR(500),
+  from_name VARCHAR(255), from_email VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+)`).catch(()=>{});
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s28','Configuração de E-mail','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's28')").catch(()=>{});
 
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});
@@ -254,6 +265,8 @@ app.use("/ativos",            ativosRoutes);
 app.use("/controle-ativos",   controleAtivosRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
 app.use("/modelos-contrato",  modelosContratoRoutes);
+app.use("/email-config",      emailConfigRoutes);
+app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
