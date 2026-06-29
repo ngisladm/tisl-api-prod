@@ -1,6 +1,8 @@
 require("dotenv").config();
 const express    = require("express");
 const cors       = require("cors");
+const helmet     = require("helmet");
+const logger     = require("./utils/logger");
 
 const authRoutes         = require("./routes/auth");
 const usersRoutes        = require("./routes/users");
@@ -30,15 +32,38 @@ const cron                    = require("node-cron");
 
 const pool = require("./db");
 const app  = express();
+
+const migrate = sql => pool.query(sql).catch(err => logger.error("[migration]", err.message));
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: "*" }));
+// Helmet — headers de segurança (CSP desabilitado para compatibilidade React)
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS — restrito à origem do frontend
+// Configure FRONTEND_URL no .env (ex: http://192.168.1.100:3000)
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(",").map(s => s.trim())
+  : ["http://localhost:3000"];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error("CORS: origin not allowed"));
+  },
+  credentials: true,
+}));
+
+// Limite global 5 MB; rotas de upload e e-mail têm limite próprio
+app.use((req, res, next) => {
+  const highLimit = ["/email/enviar-contrato", "/companies"];
+  if (highLimit.some(p => req.path.startsWith(p))) return next();
+  express.json({ limit: "5mb" })(req, res, next);
+});
 app.use(express.json({ limit: "50mb" }));
 
 // Auto-migrate
-pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT").catch(() => {});
-pool.query("INSERT INTO screens (id, name, module) VALUES ('s15','Relatório de Escala','Relatórios') ON CONFLICT DO NOTHING").catch(() => {});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s15\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's15')").catch(() => {});
+pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id, name, module) VALUES ('s15','Relatório de Escala','Relatórios') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s15\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's15')").catch(err => logger.error("[migration]", err.message));
 
 // Telefonia
 pool.query(`CREATE TABLE IF NOT EXISTS operadoras (
@@ -46,14 +71,14 @@ pool.query(`CREATE TABLE IF NOT EXISTS operadoras (
   name VARCHAR(100) NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS linhas_faturadas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   operadora_id UUID REFERENCES operadoras(id),
   mes_ano VARCHAR(7) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS itens_linhas_faturadas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   linha_faturada_id UUID REFERENCES linhas_faturadas(id) ON DELETE CASCADE,
@@ -62,12 +87,12 @@ pool.query(`CREATE TABLE IF NOT EXISTS itens_linhas_faturadas (
   consumo_linha VARCHAR(100),
   valor_linha VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
-pool.query("ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id)").catch(()=>{});
-pool.query("INSERT INTO screens (id, name, module) VALUES ('s16','Operadoras','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("INSERT INTO screens (id, name, module) VALUES ('s17','Linhas Faturadas','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s16\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's16')").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s17\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's17')").catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id)").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id, name, module) VALUES ('s16','Operadoras','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id, name, module) VALUES ('s17','Linhas Faturadas','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s16\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's16')").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s17\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's17')").catch(err => logger.error("[migration]", err.message));
 
 // Versão 4 — Tipo de Ativo, Linhas Disponíveis, Ativos, Controle de Ativos
 pool.query(`CREATE TABLE IF NOT EXISTS tipo_ativos (
@@ -75,7 +100,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS tipo_ativos (
   name VARCHAR(100) NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS linhas_disponiveis (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id    UUID REFERENCES companies(id),
@@ -85,21 +110,21 @@ pool.query(`CREATE TABLE IF NOT EXISTS linhas_disponiveis (
   status        VARCHAR(20) DEFAULT 'Em análise',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS ativos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome VARCHAR(200) NOT NULL,
   tipo_ativo_id UUID REFERENCES tipo_ativos(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS controle_ativos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome_funcionario VARCHAR(200) NOT NULL,
   cpf VARCHAR(14),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS itens_controle_ativos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   controle_ativo_id UUID REFERENCES controle_ativos(id) ON DELETE CASCADE,
@@ -114,11 +139,11 @@ pool.query(`CREATE TABLE IF NOT EXISTS itens_controle_ativos (
   attachments   JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s18','Tipo de Ativo','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s19','Linhas Disponíveis','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s18','Tipo de Ativo','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s19','Linhas Disponíveis','Movimentações') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
 // Migração colunas itens_controle_ativos v4.1
 [
   "ALTER TABLE itens_controle_ativos RENAME COLUMN imei TO imei_slot1",
@@ -140,11 +165,11 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativ
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS condicao VARCHAR(20)",
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS acessorios TEXT",
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS status_ativo VARCHAR(20)",
-].forEach(sql => pool.query(sql).catch(() => {}));
+].forEach(sql => pool.query(sql).catch(err => logger.error("[migration]", err.message)));
 
 // Garante permissões completas para s18-s21 em todos os perfis
 ["s18","s19","s20","s21"].forEach(s=>{
-  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(()=>{});
+  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(err => logger.error("[migration]", err.message));
 });
 
 // Versão 5 — Funcionários (s22)
@@ -169,43 +194,43 @@ pool.query(`CREATE TABLE IF NOT EXISTS funcionarios (
   situacao VARCHAR(10) DEFAULT 'Ativo',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(()=>{});
-pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s22','Funcionários','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s22\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's22')").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE controle_ativos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada VARCHAR(200)").catch(err => logger.error("[migration]", err.message));
 // Versão 6 — Campos extras em Empresas, Fornecedores, Operadoras; Apelido em Usuários
 // Companies
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS representante_legal VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS representante_legal VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 // Suppliers
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(()=>{});
-pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(()=>{});
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS razao_social VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_estadual VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS insc_municipal VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS numero VARCHAR(20)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 // Operadoras
-pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)").catch(()=>{});
-pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(20)").catch(()=>{});
-pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_email VARCHAR(200)").catch(()=>{});
-pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS observacao TEXT").catch(()=>{});
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(20)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_email VARCHAR(200)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS observacao TEXT").catch(err => logger.error("[migration]", err.message));
 // Users — apelido
-pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS apelido VARCHAR(100)").catch(()=>{});
+pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS apelido VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
 
 // Versão 6 — Logo de empresas e Modelos de Contrato
-pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo TEXT").catch(()=>{});
+pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo TEXT").catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome VARCHAR(200) NOT NULL,
@@ -213,36 +238,36 @@ pool.query(`CREATE TABLE IF NOT EXISTS modelos_contrato (
   conteudo TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s23','Modelos de Contrato','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s23\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's23')").catch(()=>{});
-pool.query("ALTER TABLE modelos_contrato ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES companies(id)").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s24','Relatório de Análise de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s24\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's24')").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s25','Relatório de Resumo de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s25\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's25')").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s26','Resumo de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s26\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's26')").catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s27','Inventário de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s27\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's27')").catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s23','Modelos de Contrato','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s23\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's23')").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE modelos_contrato ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES companies(id)").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s24','Relatório de Análise de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s24\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's24')").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s25','Relatório de Resumo de Linhas','Relatórios') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s25\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's25')").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s26','Resumo de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s26\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's26')").catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s27','Inventário de Ativos','Relatórios') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s27\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's27')").catch(err => logger.error("[migration]", err.message));
 pool.query(`CREATE TABLE IF NOT EXISTS email_config (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   host VARCHAR(255), port INTEGER DEFAULT 587, secure BOOLEAN DEFAULT false,
   user_email VARCHAR(255), password VARCHAR(500),
   from_name VARCHAR(255), from_email VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
-)`).catch(()=>{});
-pool.query("INSERT INTO screens (id,name,module) VALUES ('s28','Configuração de E-mail','Cadastros') ON CONFLICT DO NOTHING").catch(()=>{});
-pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's28')").catch(()=>{});
+)`).catch(err => logger.error("[migration]", err.message));
+pool.query("INSERT INTO screens (id,name,module) VALUES ('s28','Configuração de E-mail','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
+pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's28')").catch(err => logger.error("[migration]", err.message));
 
 // Ampliar colunas para comportar dados do SQL Server externo
-pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN cpf TYPE VARCHAR(30)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN centro_custo TYPE VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN cargo TYPE VARCHAR(300)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catch(()=>{});
-pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(()=>{});
+pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN cpf TYPE VARCHAR(30)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN centro_custo TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN cargo TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
@@ -269,15 +294,16 @@ app.use("/email-config",      emailConfigRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 
+app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 
 app.listen(PORT, () => {
-  console.log(`🚀 API rodando em http://localhost:${PORT}`);
+  logger.info(`API rodando em http://localhost:${PORT}`);
 });
 
 // Sync automático de funcionários: 06:00 e 18:00 todos os dias
 cron.schedule("0 6,18 * * *", () => {
-  console.log("⏰ Sync agendado de funcionários iniciado...");
-  syncFuncionarios().catch(err => console.error("Erro no sync agendado:", err.message));
+  logger.info("Sync agendado de funcionários iniciado...");
+  syncFuncionarios().catch(err => logger.error("Erro no sync agendado:", err.message));
 }, { timezone: "America/Sao_Paulo" });
 // test auto-deploy

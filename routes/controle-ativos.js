@@ -225,6 +225,24 @@ router.post("/carga-inicial", auth, async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0)
     return res.status(400).json({ error: "Nenhuma linha recebida." });
 
+  // Pré-carrega todas as tabelas de lookup em paralelo (elimina N+1 queries)
+  const [funcRows, tipoRows, coRows, opRows, ldRows] = await Promise.all([
+    pool.query("SELECT id, nome, cpf FROM funcionarios"),
+    pool.query("SELECT id, name FROM tipo_ativos"),
+    pool.query("SELECT id, name FROM companies WHERE active=true"),
+    pool.query("SELECT id, name FROM operadoras"),
+    pool.query("SELECT id, numero_linha, operadora_id FROM linhas_disponiveis"),
+  ]);
+
+  const funcByCpf  = new Map(funcRows.rows.map(f => [f.cpf?.replace(/\D/g, "") || "", f]));
+  const tipoByName = new Map(tipoRows.rows.map(r => [r.name.toLowerCase(), r]));
+  const coByName   = new Map(coRows.rows.map(r => [r.name.toLowerCase(), r]));
+  const opByName   = new Map(opRows.rows.map(r => [r.name.toLowerCase(), r]));
+  const ldByLinhaOp = new Map(ldRows.rows.map(r => [`${r.numero_linha}|${r.operadora_id}`, r.id]));
+
+  // Cache de ativos criados durante esta importação: `nome|tipoId` → id
+  const ativoCache = new Map();
+
   let inseridos = 0;
   const erros = [];
 
@@ -238,36 +256,29 @@ router.post("/carga-inicial", auth, async (req, res) => {
     if (!cpf) { erros.push({ linha: linhaNum, msg: "CPF ausente." }); continue; }
 
     try {
-      // 1. Busca funcionário pelo CPF (remove formatação)
+      // 1. Busca funcionário pelo CPF via map (sem query)
       const cpfDigits = cpf.replace(/\D/g, "");
-      const funcRes = await pool.query(
-        `SELECT id, nome, cpf FROM funcionarios WHERE regexp_replace(cpf,'[^0-9]','','g')=$1 LIMIT 1`,
-        [cpfDigits]
-      );
-      const func = funcRes.rows[0];
+      const func = funcByCpf.get(cpfDigits);
       if (!func) { erros.push({ linha: linhaNum, msg: `Funcionário com CPF "${cpf}" não encontrado.` }); continue; }
 
-      // 2. Cria controle_ativo
+      // 2. Resolve tipo_ativo e empresa via map (sem query)
+      const tipoAtivo    = tipoByName.get(tipoAtivoNome.toLowerCase());
+      const tipoAtivoId  = tipoAtivo?.id || null;
+      const tipoAtivoNameDB = tipoAtivo?.name || tipoAtivoNome;
+      const company      = coByName.get(empresaNome.toLowerCase());
+      const companyId    = company?.id || null;
+
+      // 3. Cria controle_ativo
       const caRes = await pool.query(
         `INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3) RETURNING id`,
         [func.nome, func.cpf, func.id]
       );
       const controleAtivoId = caRes.rows[0].id;
 
-      // 3. Resolve tipo_ativo e empresa
-      const [taRes, coRes] = await Promise.all([
-        tipoAtivoNome ? pool.query("SELECT id, name FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]) : { rows: [] },
-        empresaNome   ? pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) AND active=true LIMIT 1", [empresaNome]) : { rows: [] },
-      ]);
-      const tipoAtivoId = taRes.rows[0]?.id || null;
-      const tipoAtivoNameDB = taRes.rows[0]?.name || tipoAtivoNome;
-      const companyId   = coRes.rows[0]?.id || null;
-
       const isTel = tipoAtivoNameDB.toLowerCase() === "telefonia";
-      let itemData = { controle_ativo_id: controleAtivoId, company_id: companyId, tipo_ativo_id: tipoAtivoId };
 
       if (isTel) {
-        // Telefonia
+        // Telefonia — lookup via map
         const marcaT    = c[19]?.trim() || null;
         const modeloT   = c[20]?.trim() || null;
         const imei1     = c[21]?.trim() || null;
@@ -279,18 +290,10 @@ router.post("/carga-inicial", auth, async (req, res) => {
         const iccid     = c[27]?.trim() || null;
         const tipoPacote= c[28]?.trim() || null;
 
-        const opRes  = opNome  ? await pool.query("SELECT id FROM operadoras WHERE LOWER(name)=LOWER($1) LIMIT 1", [opNome])  : { rows: [] };
-        const operadoraId = opRes.rows[0]?.id || null;
-
-        // Tenta vincular linha disponível
-        let linhaId = null;
-        if (nrLinha && operadoraId) {
-          const ldRes = await pool.query(
-            "SELECT id FROM linhas_disponiveis WHERE numero_linha=$1 AND operadora_id=$2 LIMIT 1",
-            [nrLinha, operadoraId]
-          );
-          linhaId = ldRes.rows[0]?.id || null;
-        }
+        const operadoraId = opNome ? (opByName.get(opNome.toLowerCase())?.id || null) : null;
+        const linhaId = (nrLinha && operadoraId)
+          ? (ldByLinhaOp.get(`${nrLinha}|${operadoraId}`) || null)
+          : null;
 
         await pool.query(
           `INSERT INTO itens_controle_ativos
@@ -301,7 +304,7 @@ router.post("/carga-inicial", auth, async (req, res) => {
            marcaT, modeloT, imei1, imei2, acesso, estrutura, iccid, tipoPacote]
         );
       } else {
-        // Não-Telefonia
+        // Não-Telefonia — ativo com cache local
         const nomeAtivo  = c[3]?.trim() || null;
         const marca      = c[4]?.trim() || null;
         const modelo     = c[5]?.trim() || null;
@@ -319,15 +322,23 @@ router.post("/carga-inicial", auth, async (req, res) => {
         const acessorios = c[17]?.trim() || null;
         const status     = c[18]?.trim() || null;
 
-        // Resolve ativo por nome
         let ativoId = null;
         if (nomeAtivo) {
-          const atRes = await pool.query("SELECT id FROM ativos WHERE LOWER(nome)=LOWER($1) AND tipo_ativo_id IS NOT DISTINCT FROM $2 LIMIT 1", [nomeAtivo, tipoAtivoId]);
-          if (atRes.rows[0]) ativoId = atRes.rows[0].id;
-          else {
-            // Cria o ativo se não existir
-            const newAt = await pool.query("INSERT INTO ativos (nome, tipo_ativo_id) VALUES ($1,$2) RETURNING id", [nomeAtivo, tipoAtivoId]);
-            ativoId = newAt.rows[0].id;
+          const cacheKey = `${nomeAtivo.toLowerCase()}|${tipoAtivoId}`;
+          if (ativoCache.has(cacheKey)) {
+            ativoId = ativoCache.get(cacheKey);
+          } else {
+            const atRes = await pool.query(
+              "SELECT id FROM ativos WHERE LOWER(nome)=LOWER($1) AND tipo_ativo_id IS NOT DISTINCT FROM $2 LIMIT 1",
+              [nomeAtivo, tipoAtivoId]
+            );
+            if (atRes.rows[0]) {
+              ativoId = atRes.rows[0].id;
+            } else {
+              const newAt = await pool.query("INSERT INTO ativos (nome, tipo_ativo_id) VALUES ($1,$2) RETURNING id", [nomeAtivo, tipoAtivoId]);
+              ativoId = newAt.rows[0].id;
+            }
+            ativoCache.set(cacheKey, ativoId);
           }
         }
 

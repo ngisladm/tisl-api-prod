@@ -1,6 +1,6 @@
 const express = require("express");
 const router  = express.Router();
-const bcrypt  = require("bcryptjs");
+const bcrypt  = require("bcrypt");
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
@@ -41,8 +41,8 @@ router.put("/me/password", auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword)
     return res.status(400).json({ error: "Senha atual e nova senha são obrigatórias." });
-  if (newPassword.length < 6)
-    return res.status(400).json({ error: "A nova senha deve ter no mínimo 6 caracteres." });
+  if (newPassword.length < 8)
+    return res.status(400).json({ error: "A nova senha deve ter no mínimo 8 caracteres." });
   try {
     const result = await pool.query("SELECT password_hash FROM users WHERE id=$1", [req.user.id]);
     if (!result.rows[0]) return res.status(404).json({ error: "Usuário não encontrado." });
