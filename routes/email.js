@@ -30,8 +30,14 @@ router.post("/enviar-contrato", auth, async (req, res) => {
     const base64Data = pdfBase64.includes(",") ? pdfBase64.split(",")[1] : pdfBase64;
     const nome = (funcionarioNome || "funcionario").replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-");
 
+    // O "from" deve usar o user_email autenticado para evitar erro SendAsDenied no Exchange/O365.
+    // Se from_email for diferente, usamos como replyTo.
+    const fromAddr = `"${cfg.from_name || "TI"}" <${cfg.user_email}>`;
+    const replyTo  = cfg.from_email && cfg.from_email !== cfg.user_email ? cfg.from_email : undefined;
+
     await transporter.sendMail({
-      from: `"${cfg.from_name || "TI"}" <${cfg.from_email || cfg.user_email}>`,
+      from: fromAddr,
+      ...(replyTo ? { replyTo } : {}),
       to: toEmail.trim(),
       subject: "Contrato de Ativos - TI",
       text: "Prezado, por favor assinar o contrato em anexo e devolver a TI o mais rápido possível. Agradecemos. TI",

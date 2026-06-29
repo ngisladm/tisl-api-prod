@@ -45,8 +45,8 @@ router.post("/testar", auth, async (req, res) => {
       auth: { user: cfg.user_email, pass: cfg.password },
     });
     await transporter.sendMail({
-      from: `"${cfg.from_name||"TI"}" <${cfg.from_email}>`,
-      to: cfg.from_email,
+      from: `"${cfg.from_name||"TI"}" <${cfg.user_email}>`,
+      to: cfg.user_email,
       subject: "Teste de Configuração - SL TI System",
       text: "Configuração de e-mail funcionando corretamente.",
     });
