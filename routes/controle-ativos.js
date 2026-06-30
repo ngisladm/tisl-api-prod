@@ -4,7 +4,7 @@ const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
 // Registra snapshot do item no histórico de movimentações
-async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome) {
+async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome, funcionarioDestinoNome) {
   try {
     const [itemRes, caRes] = await Promise.all([
       pool.query(`
@@ -35,8 +35,8 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
          company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
          numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
          sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
-         valor, data_aquisicao, condicao, acessorios, status_ativo)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
+         valor, data_aquisicao, condicao, acessorios, status_ativo, funcionario_destino_nome)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
       [itemId, ca.nome_funcionario, ca.cpf, tipoMovimentacao, usuarioNome,
        it.company_name, it.tipo_ativo_name, it.ativo_nome,
        it.marca, it.modelo, it.imei_slot1, it.imei_slot2,
@@ -44,7 +44,8 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
        it.iccid, it.acesso, it.estrutura, it.tipo_pacote,
        it.sistema_operacional, it.versao, it.processador,
        it.memoria, it.hd, it.patrimonio, it.numero_documento,
-       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo]);
+       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo,
+       funcionarioDestinoNome || null]);
   } catch (e) {
     console.error("logHistorico error:", e.message);
   }
@@ -312,19 +313,23 @@ router.post("/:id/itens/:itemId/movimentacao", auth, async (req, res) => {
       if (!funcionarioId) return res.status(400).json({ error: "Selecione um funcionário para a transferência." });
       // Busca ou cria controle_ativo para o novo funcionário
       let novoCaId;
+      let funcionarioDestinoNome = null;
       const existCa = await pool.query("SELECT id FROM controle_ativos WHERE funcionario_id=$1 LIMIT 1", [funcionarioId]);
       if (existCa.rows.length > 0) {
         novoCaId = existCa.rows[0].id;
+        const funcRes = await pool.query("SELECT nome FROM funcionarios WHERE id=$1", [funcionarioId]);
+        funcionarioDestinoNome = funcRes.rows[0]?.nome || null;
       } else {
         const funcRes = await pool.query("SELECT nome, cpf FROM funcionarios WHERE id=$1", [funcionarioId]);
         if (!funcRes.rows[0]) return res.status(404).json({ error: "Funcionário não encontrado." });
+        funcionarioDestinoNome = funcRes.rows[0].nome;
         const newCa = await pool.query(
           "INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3) RETURNING id",
           [funcRes.rows[0].nome, funcRes.rows[0].cpf, funcionarioId]
         );
         novoCaId = newCa.rows[0].id;
       }
-      await logHistorico(req.params.id, req.params.itemId, "Transferência", req.user?.name || "Sistema");
+      await logHistorico(req.params.id, req.params.itemId, "Transferência", req.user?.name || "Sistema", funcionarioDestinoNome);
       await pool.query("UPDATE itens_controle_ativos SET controle_ativo_id=$1, updated_at=NOW() WHERE id=$2",
         [novoCaId, req.params.itemId]);
     } else if (tipoMovimentacao === "Baixa") {

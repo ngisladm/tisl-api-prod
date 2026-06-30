@@ -31,6 +31,7 @@ router.get("/", auth, async (req, res) => {
               TO_CHAR(data_aquisicao,'DD/MM/YYYY') AS "dataAquisicao",
               condicao, acessorios,
               status_ativo     AS "statusAtivo",
+              funcionario_destino_nome AS "funcionarioDestinoNome",
               TO_CHAR(created_at,'DD/MM/YYYY HH24:MI') AS "dataHora"
          FROM historico_movimentacoes_ativos
         ORDER BY created_at DESC

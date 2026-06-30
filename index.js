@@ -289,6 +289,7 @@ pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\"
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS tipo_pacote VARCHAR(50)",
   "ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS fatura VARCHAR(200)",
+  "ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS funcionario_destino_nome VARCHAR(200)",
 ].forEach(sql => migrate(sql));
 migrate(`CREATE TABLE IF NOT EXISTS historico_movimentacoes_ativos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
