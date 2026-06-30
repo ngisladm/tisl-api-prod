@@ -3,6 +3,53 @@ const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
+// Registra snapshot do item no histórico de movimentações
+async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome) {
+  try {
+    const [itemRes, caRes] = await Promise.all([
+      pool.query(`
+        SELECT i.marca, i.modelo, i.imei_slot1, i.imei_slot2, i.numero_serie,
+               i.sistema_operacional, i.versao, i.processador, i.memoria, i.hd,
+               i.patrimonio, i.numero_documento, i.valor,
+               TO_CHAR(i.data_aquisicao,'DD/MM/YYYY') AS data_aquisicao,
+               i.condicao, i.acessorios, i.status_ativo,
+               i.acesso, i.estrutura, i.iccid, i.tipo_pacote,
+               c.name AS company_name, ta.name AS tipo_ativo_name,
+               a.nome AS ativo_nome, o.name AS operadora_name,
+               ld.numero_linha
+          FROM itens_controle_ativos i
+          LEFT JOIN companies          c  ON c.id  = i.company_id
+          LEFT JOIN tipo_ativos        ta ON ta.id = i.tipo_ativo_id
+          LEFT JOIN ativos             a  ON a.id  = i.ativo_id
+          LEFT JOIN operadoras         o  ON o.id  = i.operadora_id
+          LEFT JOIN linhas_disponiveis ld ON ld.id = i.linha_id
+         WHERE i.id=$1`, [itemId]),
+      pool.query("SELECT nome_funcionario, cpf FROM controle_ativos WHERE id=$1", [controleAtivoId])
+    ]);
+    const it = itemRes.rows[0];
+    const ca = caRes.rows[0];
+    if (!it || !ca) return;
+    await pool.query(`
+      INSERT INTO historico_movimentacoes_ativos
+        (item_id, funcionario_nome, funcionario_cpf, tipo_movimentacao, usuario_nome,
+         company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
+         numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
+         sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
+         valor, data_aquisicao, condicao, acessorios, status_ativo)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
+      [itemId, ca.nome_funcionario, ca.cpf, tipoMovimentacao, usuarioNome,
+       it.company_name, it.tipo_ativo_name, it.ativo_nome,
+       it.marca, it.modelo, it.imei_slot1, it.imei_slot2,
+       it.numero_serie, it.numero_linha, it.operadora_name,
+       it.iccid, it.acesso, it.estrutura, it.tipo_pacote,
+       it.sistema_operacional, it.versao, it.processador,
+       it.memoria, it.hd, it.patrimonio, it.numero_documento,
+       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo]);
+  } catch (e) {
+    console.error("logHistorico error:", e.message);
+  }
+}
+
 // ── Controle de Ativos (cabeçalho) ──────────────────────────
 
 router.get("/", auth, async (req, res) => {
@@ -72,7 +119,9 @@ router.get("/itens/all", auth, async (req, res) => {
               ld.numero_linha AS "numeroLinha",
               TO_CHAR(i.data_aquisicao,'DD/MM/YYYY') AS "dataAquisicao",
               i.numero_serie     AS "numeroSerie",
-              i.numero_documento AS "numeroDocumento"
+              i.numero_documento AS "numeroDocumento",
+              i.patrimonio,
+              i.imei_slot1 AS "imeiSlot1"
          FROM itens_controle_ativos i
          LEFT JOIN companies          c  ON c.id  = i.company_id
          LEFT JOIN operadoras         o  ON o.id  = i.operadora_id
@@ -175,6 +224,11 @@ router.post("/:id/itens", auth, async (req, res) => {
        f.valor||null, parseDate(f.dataAquisicao), f.condicao||null,
        f.acessorios||null, f.statusAtivo||null]
     );
+    const itemId = r.rows[0].id;
+    // V11: atualiza status do ativo e da linha para "Em uso"
+    if (f.ativoId) await pool.query("UPDATE ativos SET status='Em uso' WHERE id=$1", [f.ativoId]).catch(()=>{});
+    if (f.linhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em uso' WHERE id=$1", [f.linhaId]).catch(()=>{});
+    await logHistorico(req.params.id, itemId, "Inclusão", req.user?.name || "Sistema");
     res.status(201).json(r.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar item." }); }
 });
@@ -182,6 +236,11 @@ router.post("/:id/itens", auth, async (req, res) => {
 router.put("/:id/itens/:itemId", auth, async (req, res) => {
   const f = req.body;
   try {
+    // Busca valores antigos para gerenciar mudança de ativo/linha
+    const old = await pool.query("SELECT ativo_id, linha_id FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
+    const oldAtivoId = old.rows[0]?.ativo_id || null;
+    const oldLinhaId = old.rows[0]?.linha_id || null;
+
     const r = await pool.query(
       `UPDATE itens_controle_ativos SET
          company_id=$1, tipo_ativo_id=$2, operadora_id=$3, linha_id=$4, ativo_id=$5,
@@ -202,16 +261,85 @@ router.put("/:id/itens/:itemId", auth, async (req, res) => {
        req.params.itemId, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
+
+    // V11: gerencia mudança de ativo e linha
+    const newAtivoId = f.ativoId || null;
+    const newLinhaId = f.linhaId || null;
+    if (oldAtivoId && oldAtivoId !== newAtivoId)
+      await pool.query("UPDATE ativos SET status='Em Estoque' WHERE id=$1", [oldAtivoId]).catch(()=>{});
+    if (newAtivoId)
+      await pool.query("UPDATE ativos SET status='Em uso' WHERE id=$1", [newAtivoId]).catch(()=>{});
+    if (oldLinhaId && oldLinhaId !== newLinhaId)
+      await pool.query("UPDATE linhas_disponiveis SET status='Em estoque' WHERE id=$1", [oldLinhaId]).catch(()=>{});
+    if (newLinhaId)
+      await pool.query("UPDATE linhas_disponiveis SET status='Em uso' WHERE id=$1", [newLinhaId]).catch(()=>{});
+
+    await logHistorico(req.params.id, req.params.itemId, "Edição", req.user?.name || "Sistema");
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar item." }); }
 });
 
 router.delete("/:id/itens/:itemId", auth, async (req, res) => {
   try {
+    // V11: libera ativo e linha antes de excluir
+    const old = await pool.query("SELECT ativo_id, linha_id FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
+    const oldAtivoId = old.rows[0]?.ativo_id;
+    const oldLinhaId = old.rows[0]?.linha_id;
+    await logHistorico(req.params.id, req.params.itemId, "Exclusão", req.user?.name || "Sistema");
     await pool.query("DELETE FROM itens_controle_ativos WHERE id=$1 AND controle_ativo_id=$2",
       [req.params.itemId, req.params.id]);
+    if (oldAtivoId) await pool.query("UPDATE ativos SET status='Em Estoque' WHERE id=$1", [oldAtivoId]).catch(()=>{});
+    if (oldLinhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em estoque' WHERE id=$1", [oldLinhaId]).catch(()=>{});
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir item." }); }
+});
+
+// ── Movimentações ─────────────────────────────────────────────
+router.post("/:id/itens/:itemId/movimentacao", auth, async (req, res) => {
+  const { tipoMovimentacao, funcionarioId } = req.body;
+  if (!["Transferência","Baixa","Devolução Estoque"].includes(tipoMovimentacao))
+    return res.status(400).json({ error: "Tipo de movimentação inválido." });
+  try {
+    // Busca item completo
+    const itemRes = await pool.query(
+      "SELECT ativo_id, linha_id FROM itens_controle_ativos WHERE id=$1 AND controle_ativo_id=$2",
+      [req.params.itemId, req.params.id]
+    );
+    if (!itemRes.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
+    const { ativo_id: ativoId, linha_id: linhaId } = itemRes.rows[0];
+
+    if (tipoMovimentacao === "Transferência") {
+      if (!funcionarioId) return res.status(400).json({ error: "Selecione um funcionário para a transferência." });
+      // Busca ou cria controle_ativo para o novo funcionário
+      let novoCaId;
+      const existCa = await pool.query("SELECT id FROM controle_ativos WHERE funcionario_id=$1 LIMIT 1", [funcionarioId]);
+      if (existCa.rows.length > 0) {
+        novoCaId = existCa.rows[0].id;
+      } else {
+        const funcRes = await pool.query("SELECT nome, cpf FROM funcionarios WHERE id=$1", [funcionarioId]);
+        if (!funcRes.rows[0]) return res.status(404).json({ error: "Funcionário não encontrado." });
+        const newCa = await pool.query(
+          "INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3) RETURNING id",
+          [funcRes.rows[0].nome, funcRes.rows[0].cpf, funcionarioId]
+        );
+        novoCaId = newCa.rows[0].id;
+      }
+      await logHistorico(req.params.id, req.params.itemId, "Transferência", req.user?.name || "Sistema");
+      await pool.query("UPDATE itens_controle_ativos SET controle_ativo_id=$1, updated_at=NOW() WHERE id=$2",
+        [novoCaId, req.params.itemId]);
+    } else if (tipoMovimentacao === "Baixa") {
+      await logHistorico(req.params.id, req.params.itemId, "Baixa", req.user?.name || "Sistema");
+      if (ativoId) await pool.query("UPDATE ativos SET status='Baixado' WHERE id=$1", [ativoId]).catch(()=>{});
+      if (linhaId) await pool.query("UPDATE linhas_disponiveis SET status='Baixado' WHERE id=$1", [linhaId]).catch(()=>{});
+      await pool.query("DELETE FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
+    } else if (tipoMovimentacao === "Devolução Estoque") {
+      await logHistorico(req.params.id, req.params.itemId, "Devolução Estoque", req.user?.name || "Sistema");
+      if (ativoId) await pool.query("UPDATE ativos SET status='Em Estoque' WHERE id=$1", [ativoId]).catch(()=>{});
+      if (linhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em estoque' WHERE id=$1", [linhaId]).catch(()=>{});
+      await pool.query("DELETE FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
+    }
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao registrar movimentação." }); }
 });
 
 // ── Carga Inicial ─────────────────────────────────────────────

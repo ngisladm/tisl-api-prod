@@ -28,6 +28,7 @@ const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
+const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -263,6 +264,70 @@ pool.query(`CREATE TABLE IF NOT EXISTS email_config (
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s28','Configuração de E-mail','Cadastros') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
 pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's28')").catch(err => logger.error("[migration]", err.message));
 
+// V11 — Ativos expandido, Linhas Disponíveis extras, Histórico de Movimentações
+[
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS marca VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS modelo VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS numero_serie VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS sistema_operacional VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS versao VARCHAR(50)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS processador VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS memoria VARCHAR(50)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS hd VARCHAR(50)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS patrimonio VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS numero_documento VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS valor NUMERIC(12,2)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS data_aquisicao DATE",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS condicao VARCHAR(20)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS acessorios TEXT",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS imei_slot1 VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS imei_slot2 VARCHAR(100)",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Em Estoque'",
+  "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS acesso VARCHAR(200)",
+  "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS estrutura VARCHAR(200)",
+  "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",
+  "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS tipo_pacote VARCHAR(50)",
+  "ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS fatura VARCHAR(200)",
+].forEach(sql => migrate(sql));
+migrate(`CREATE TABLE IF NOT EXISTS historico_movimentacoes_ativos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id UUID,
+  funcionario_nome VARCHAR(200),
+  funcionario_cpf VARCHAR(30),
+  tipo_movimentacao VARCHAR(50),
+  usuario_nome VARCHAR(200),
+  company_name VARCHAR(200),
+  tipo_ativo_name VARCHAR(200),
+  ativo_nome VARCHAR(200),
+  marca VARCHAR(100),
+  modelo VARCHAR(100),
+  imei_slot1 VARCHAR(100),
+  imei_slot2 VARCHAR(100),
+  numero_serie VARCHAR(100),
+  numero_linha VARCHAR(50),
+  operadora_name VARCHAR(200),
+  iccid VARCHAR(100),
+  acesso VARCHAR(200),
+  estrutura VARCHAR(200),
+  tipo_pacote VARCHAR(50),
+  sistema_operacional VARCHAR(100),
+  versao VARCHAR(50),
+  processador VARCHAR(100),
+  memoria VARCHAR(50),
+  hd VARCHAR(50),
+  patrimonio VARCHAR(100),
+  numero_documento VARCHAR(100),
+  valor NUMERIC(12,2),
+  data_aquisicao DATE,
+  condicao VARCHAR(20),
+  acessorios TEXT,
+  status_ativo VARCHAR(20),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s29','Histórico de Movimentações de Ativos','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s29\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's29')");
+
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
@@ -294,6 +359,7 @@ app.use("/controle-ativos",   controleAtivosRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
 app.use("/modelos-contrato",  modelosContratoRoutes);
 app.use("/email-config",      emailConfigRoutes);
+app.use("/historico-movimentacoes", historicoMovimentacoesRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 

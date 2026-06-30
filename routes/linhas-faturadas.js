@@ -7,7 +7,7 @@ const auth    = require("../middleware/auth");
 router.get("/", auth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT lf.id, lf.mes_ano AS "mesAno",
+      `SELECT lf.id, lf.mes_ano AS "mesAno", lf.fatura,
               lf.operadora_id AS "operadoraId", o.name AS "operadoraName",
               lf.company_id   AS "companyId",   c.name AS "companyName",
               COUNT(i.id)::int AS "totalItens",
@@ -28,15 +28,15 @@ router.get("/", auth, async (req, res) => {
 
 // POST /linhas-faturadas
 router.post("/", auth, async (req, res) => {
-  const { operadoraId, companyId, mesAno } = req.body;
+  const { operadoraId, companyId, mesAno, fatura } = req.body;
   if (!operadoraId || !mesAno?.trim())
     return res.status(400).json({ error: "Operadora e Mês/Ano são obrigatórios." });
   try {
     const r = await pool.query(
-      `INSERT INTO linhas_faturadas (operadora_id, company_id, mes_ano)
-       VALUES ($1, $2, $3)
-       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno"`,
-      [operadoraId, companyId||null, mesAno.trim()]
+      `INSERT INTO linhas_faturadas (operadora_id, company_id, mes_ano, fatura)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno", fatura`,
+      [operadoraId, companyId||null, mesAno.trim(), fatura||null]
     );
     const row = r.rows[0];
     const op = await pool.query("SELECT name FROM operadoras WHERE id=$1", [operadoraId]);
@@ -53,15 +53,15 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /linhas-faturadas/:id
 router.put("/:id", auth, async (req, res) => {
-  const { operadoraId, companyId, mesAno } = req.body;
+  const { operadoraId, companyId, mesAno, fatura } = req.body;
   if (!operadoraId || !mesAno?.trim())
     return res.status(400).json({ error: "Operadora e Mês/Ano são obrigatórios." });
   try {
     const r = await pool.query(
-      `UPDATE linhas_faturadas SET operadora_id=$1, company_id=$2, mes_ano=$3, updated_at=NOW()
-        WHERE id=$4
-       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno"`,
-      [operadoraId, companyId||null, mesAno.trim(), req.params.id]
+      `UPDATE linhas_faturadas SET operadora_id=$1, company_id=$2, mes_ano=$3, fatura=$4, updated_at=NOW()
+        WHERE id=$5
+       RETURNING id, operadora_id AS "operadoraId", company_id AS "companyId", mes_ano AS "mesAno", fatura`,
+      [operadoraId, companyId||null, mesAno.trim(), fatura||null, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Linha não encontrada." });
     const row = r.rows[0];
