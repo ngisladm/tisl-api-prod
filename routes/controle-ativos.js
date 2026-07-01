@@ -28,26 +28,45 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
     ]);
     const it = itemRes.rows[0];
     const ca = caRes.rows[0];
-    if (!it || !ca) return;
-    await pool.query(`
-      INSERT INTO historico_movimentacoes_ativos
-        (item_id, funcionario_nome, funcionario_cpf, tipo_movimentacao, usuario_nome,
-         company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
-         numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
-         sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
-         valor, data_aquisicao, condicao, acessorios, status_ativo, funcionario_destino_nome)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
-      [itemId, ca.nome_funcionario, ca.cpf, tipoMovimentacao, usuarioNome,
+    if (!it) { console.error("logHistorico: item não encontrado id="+itemId); return; }
+    if (!ca) { console.error("logHistorico: controle_ativo não encontrado id="+controleAtivoId); return; }
+    const baseVals = [itemId, ca.nome_funcionario, ca.cpf, tipoMovimentacao, usuarioNome,
        it.company_name, it.tipo_ativo_name, it.ativo_nome,
        it.marca, it.modelo, it.imei_slot1, it.imei_slot2,
        it.numero_serie, it.numero_linha, it.operadora_name,
        it.iccid, it.acesso, it.estrutura, it.tipo_pacote,
        it.sistema_operacional, it.versao, it.processador,
        it.memoria, it.hd, it.patrimonio, it.numero_documento,
-       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo,
-       funcionarioDestinoNome || null]);
+       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo];
+    try {
+      await pool.query(`
+        INSERT INTO historico_movimentacoes_ativos
+          (item_id, funcionario_nome, funcionario_cpf, tipo_movimentacao, usuario_nome,
+           company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
+           numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
+           sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
+           valor, data_aquisicao, condicao, acessorios, status_ativo, funcionario_destino_nome)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+        [...baseVals, funcionarioDestinoNome || null]);
+    } catch (colErr) {
+      if (colErr.code === '42703') {
+        // Coluna funcionario_destino_nome ainda não existe (migração pendente) — insere sem ela
+        await pool.query(`
+          INSERT INTO historico_movimentacoes_ativos
+            (item_id, funcionario_nome, funcionario_cpf, tipo_movimentacao, usuario_nome,
+             company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
+             numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
+             sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
+             valor, data_aquisicao, condicao, acessorios, status_ativo)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
+          baseVals);
+      } else {
+        throw colErr;
+      }
+    }
+    console.log(`[logHistorico] OK tipo=${tipoMovimentacao} itemId=${itemId}`);
   } catch (e) {
-    console.error("logHistorico error:", e.message);
+    console.error(`[logHistorico] ERRO tipo=${tipoMovimentacao} itemId=${itemId}:`, e.code, e.message);
   }
 }
 
@@ -298,6 +317,7 @@ router.delete("/:id/itens/:itemId", auth, async (req, res) => {
 // ── Movimentações ─────────────────────────────────────────────
 router.post("/:id/itens/:itemId/movimentacao", auth, async (req, res) => {
   const { tipoMovimentacao, funcionarioId } = req.body;
+  console.log(`[movimentacao] tipo=${tipoMovimentacao} itemId=${req.params.itemId} controleId=${req.params.id} funcionarioId=${funcionarioId}`);
   if (!["Transferência","Baixa","Devolução Estoque"].includes(tipoMovimentacao))
     return res.status(400).json({ error: "Tipo de movimentação inválido." });
   try {

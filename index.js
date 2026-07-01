@@ -289,7 +289,6 @@ pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\"
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS tipo_pacote VARCHAR(50)",
   "ALTER TABLE linhas_faturadas ADD COLUMN IF NOT EXISTS fatura VARCHAR(200)",
-  "ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS funcionario_destino_nome VARCHAR(200)",
 ].forEach(sql => migrate(sql));
 migrate(`CREATE TABLE IF NOT EXISTS historico_movimentacoes_ativos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -326,6 +325,7 @@ migrate(`CREATE TABLE IF NOT EXISTS historico_movimentacoes_ativos (
   status_ativo VARCHAR(20),
   created_at TIMESTAMPTZ DEFAULT NOW()
 )`);
+migrate("ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS funcionario_destino_nome VARCHAR(200)");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s29','Histórico de Movimentações de Ativos','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s29\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's29')");
 
