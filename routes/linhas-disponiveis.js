@@ -113,6 +113,39 @@ router.post("/carga-inicial", auth, async (req, res) => {
   res.json({ inseridos, ignorados, erros });
 });
 
+// POST /linhas-disponiveis/:id/reverter-baixa — somente Master
+router.post("/:id/reverter-baixa", auth, async (req, res) => {
+  if (!req.user.isMaster)
+    return res.status(403).json({ error: "Apenas usuários Master podem reverter baixas." });
+  try {
+    const ldRes = await pool.query(
+      `SELECT ld.numero_linha, ld.status,
+              c.name  AS company_name,
+              ta.name AS tipo_ativo_name
+         FROM linhas_disponiveis ld
+         LEFT JOIN companies   c  ON c.id  = ld.company_id
+         LEFT JOIN tipo_ativos ta ON ta.id = ld.tipo_ativo_id
+        WHERE ld.id=$1`, [req.params.id]
+    );
+    const ld = ldRes.rows[0];
+    if (!ld) return res.status(404).json({ error: "Linha não encontrada." });
+    if (ld.status !== "Baixado")
+      return res.status(400).json({ error: "Esta linha não está com status 'Baixado'." });
+
+    await pool.query(
+      "UPDATE linhas_disponiveis SET status='Em estoque', updated_at=NOW() WHERE id=$1",
+      [req.params.id]
+    );
+    await pool.query(
+      `INSERT INTO historico_movimentacoes_ativos
+         (tipo_movimentacao, numero_linha, tipo_ativo_name, company_name, usuario_nome)
+       VALUES ($1,$2,$3,$4,$5)`,
+      ["Reversão de Baixa", ld.numero_linha, ld.tipo_ativo_name || null, ld.company_name || null, req.user.name || "Sistema"]
+    );
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." }); }
+});
+
 // DELETE /linhas-disponiveis/:id
 router.delete("/:id", auth, async (req, res) => {
   try {

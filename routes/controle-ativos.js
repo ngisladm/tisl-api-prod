@@ -11,7 +11,7 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
         SELECT i.marca, i.modelo, i.imei_slot1, i.imei_slot2, i.numero_serie,
                i.sistema_operacional, i.versao, i.processador, i.memoria, i.hd,
                i.patrimonio, i.numero_documento, i.valor,
-               TO_CHAR(i.data_aquisicao,'DD/MM/YYYY') AS data_aquisicao,
+               i.data_aquisicao,
                i.condicao, i.acessorios, i.status_ativo,
                i.acesso, i.estrutura, i.iccid, i.tipo_pacote,
                c.name AS company_name, ta.name AS tipo_ativo_name,
