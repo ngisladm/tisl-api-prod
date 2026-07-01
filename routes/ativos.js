@@ -97,4 +97,37 @@ router.delete("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir ativo." }); }
 });
 
+// POST /ativos/:id/reverter-baixa — somente Master
+router.post("/:id/reverter-baixa", auth, async (req, res) => {
+  if (!req.user.isMaster)
+    return res.status(403).json({ error: "Apenas usuários Master podem reverter baixas." });
+  try {
+    const aRes = await pool.query(
+      `SELECT a.nome, a.status,
+              c.name  AS company_name,
+              ta.name AS tipo_ativo_name
+         FROM ativos a
+         LEFT JOIN companies   c  ON c.id  = a.company_id
+         LEFT JOIN tipo_ativos ta ON ta.id = a.tipo_ativo_id
+        WHERE a.id=$1`, [req.params.id]
+    );
+    const a = aRes.rows[0];
+    if (!a) return res.status(404).json({ error: "Ativo não encontrado." });
+    if (a.status !== "Baixado")
+      return res.status(400).json({ error: "Este ativo não está com status 'Baixado'." });
+
+    await pool.query(
+      "UPDATE ativos SET status='Em Estoque', updated_at=NOW() WHERE id=$1",
+      [req.params.id]
+    );
+    await pool.query(
+      `INSERT INTO historico_movimentacoes_ativos
+         (tipo_movimentacao, ativo_nome, tipo_ativo_name, company_name, usuario_nome)
+       VALUES ($1,$2,$3,$4,$5)`,
+      ["Reversão de Baixa", a.nome, a.tipo_ativo_name || null, a.company_name || null, req.user.name || "Sistema"]
+    );
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." }); }
+});
+
 module.exports = router;
