@@ -11,14 +11,9 @@ const RETURNING = `
 
 router.get("/", auth, async (req, res) => {
   try {
-    // M5: CPF mascarado na listagem — edição ainda recebe valor completo via RETURNING
-    // ROLLBACK: substituir a expressão CASE por apenas `cpf`
     const r = await pool.query(
-      `SELECT id, nome, matricula, centro_custo AS "centroCusto", cargo, rg,
-              CASE WHEN cpf IS NULL THEN NULL
-                   WHEN LENGTH(cpf) >= 5 THEN LEFT(cpf,3) || '.***.***-' || RIGHT(cpf,2)
-                   ELSE '***' END AS cpf,
-              logradouro, numero, bairro, cidade, estado, cep,
+      `SELECT id, nome, matricula, centro_custo AS "centroCusto", cargo,
+              rg, cpf, logradouro, numero, bairro, cidade, estado, cep,
               complemento, email, fone, observacao, situacao, coligada,
               created_at AS "createdAt"
          FROM funcionarios
