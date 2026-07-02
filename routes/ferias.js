@@ -68,7 +68,10 @@ router.get("/:id/equipe", auth, async (req, res) => {
               fe.ferias_id       AS "feriasId",
               fe.funcionario_id  AS "funcionarioId",
               fn.nome            AS "funcionarioNome",
-              TO_CHAR(fe.data_limite,'DD/MM/YYYY') AS "dataLimite",
+              TO_CHAR(fe.data_limite,'DD/MM/YYYY')  AS "dataLimite",
+              TO_CHAR(fe.data_ferias,'DD/MM/YYYY')      AS "dtInicFer",
+              TO_CHAR(fe.dt_final_fer,'DD/MM/YYYY')    AS "dtFinalFer",
+              fe.chamado,
               fe.total_dias      AS "totalDias",
               fe.dias_vendidos   AS "diasVendidos",
               (fe.total_dias - fe.dias_vendidos)                              AS "diasGozo",
@@ -90,25 +93,28 @@ router.get("/:id/equipe", auth, async (req, res) => {
 });
 
 router.post("/:id/equipe", auth, async (req, res) => {
-  const { funcionarioId, dataLimite, totalDias, diasVendidos } = req.body;
+  const { funcionarioId, dataLimite, dtInicFer, dtFinalFer, chamado, totalDias, diasVendidos } = req.body;
   try {
     const r = await pool.query(
-      `INSERT INTO ferias_equipe (ferias_id, funcionario_id, data_limite, total_dias, dias_vendidos)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [req.params.id, funcionarioId||null, parseDate(dataLimite), parseInt(totalDias)||30, parseInt(diasVendidos)||0]
+      `INSERT INTO ferias_equipe (ferias_id, funcionario_id, data_limite, data_ferias, dt_final_fer, chamado, total_dias, dias_vendidos)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [req.params.id, funcionarioId||null, parseDate(dataLimite), parseDate(dtInicFer), parseDate(dtFinalFer), chamado||null,
+       parseInt(totalDias)||30, parseInt(diasVendidos)||0]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar item de férias." }); }
 });
 
 router.put("/:id/equipe/:equipeId", auth, async (req, res) => {
-  const { funcionarioId, dataLimite, totalDias, diasVendidos } = req.body;
+  const { funcionarioId, dataLimite, dtInicFer, dtFinalFer, chamado, totalDias, diasVendidos } = req.body;
   try {
     const r = await pool.query(
       `UPDATE ferias_equipe
-          SET funcionario_id=$1, data_limite=$2, total_dias=$3, dias_vendidos=$4, updated_at=NOW()
-        WHERE id=$5 AND ferias_id=$6 RETURNING id`,
-      [funcionarioId||null, parseDate(dataLimite), parseInt(totalDias)||30, parseInt(diasVendidos)||0,
+          SET funcionario_id=$1, data_limite=$2, data_ferias=$3, dt_final_fer=$4, chamado=$5,
+              total_dias=$6, dias_vendidos=$7, updated_at=NOW()
+        WHERE id=$8 AND ferias_id=$9 RETURNING id`,
+      [funcionarioId||null, parseDate(dataLimite), parseDate(dtInicFer), parseDate(dtFinalFer), chamado||null,
+       parseInt(totalDias)||30, parseInt(diasVendidos)||0,
        req.params.equipeId, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
@@ -151,7 +157,7 @@ router.post("/:id/equipe/:equipeId/periodos", auth, async (req, res) => {
   let qtdeDias = 0;
   if (di && df) {
     const d1 = new Date(di), d2 = new Date(df);
-    qtdeDias = Math.max(0, Math.round((d2 - d1) / 86400000));
+    qtdeDias = Math.max(0, Math.round((d2 - d1) / 86400000) + 1);
   }
   try {
     const r = await pool.query(
@@ -170,7 +176,7 @@ router.put("/:id/equipe/:equipeId/periodos/:periodoId", auth, async (req, res) =
   let qtdeDias = 0;
   if (di && df) {
     const d1 = new Date(di), d2 = new Date(df);
-    qtdeDias = Math.max(0, Math.round((d2 - d1) / 86400000));
+    qtdeDias = Math.max(0, Math.round((d2 - d1) / 86400000) + 1);
   }
   try {
     const r = await pool.query(

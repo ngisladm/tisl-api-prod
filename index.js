@@ -359,6 +359,9 @@ migrate(`CREATE TABLE IF NOT EXISTS periodos_ferias (
   created_at       TIMESTAMPTZ DEFAULT NOW(),
   updated_at       TIMESTAMPTZ DEFAULT NOW()
 )`);
+migrate("ALTER TABLE ferias_equipe ADD COLUMN IF NOT EXISTS data_ferias DATE");
+migrate("ALTER TABLE ferias_equipe ADD COLUMN IF NOT EXISTS dt_final_fer DATE");
+migrate("ALTER TABLE ferias_equipe ADD COLUMN IF NOT EXISTS chamado VARCHAR(200)");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s30','Férias','Movimentações') ON CONFLICT DO NOTHING");
 
 // Ampliar colunas para comportar dados do SQL Server externo
