@@ -29,6 +29,7 @@ const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
+const feriasRoutes                 = require("./routes/ferias");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -329,6 +330,37 @@ migrate("ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS fun
 migrate("INSERT INTO screens (id,name,module) VALUES ('s29','Histórico de Movimentações de Ativos','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s29\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's29')");
 
+// Férias (s30)
+migrate(`CREATE TABLE IF NOT EXISTS ferias (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  team_id    UUID REFERENCES teams(id),
+  ano        INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS ferias_equipe (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ferias_id      UUID REFERENCES ferias(id) ON DELETE CASCADE,
+  funcionario_id UUID REFERENCES funcionarios(id),
+  data_limite    DATE,
+  total_dias     INTEGER NOT NULL DEFAULT 30,
+  dias_vendidos  INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS periodos_ferias (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ferias_equipe_id UUID REFERENCES ferias_equipe(id) ON DELETE CASCADE,
+  data_inicial     DATE,
+  data_final       DATE,
+  qtde_dias        INTEGER NOT NULL DEFAULT 0,
+  status           VARCHAR(20) NOT NULL DEFAULT 'Pendente',
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s30','Férias','Movimentações') ON CONFLICT DO NOTHING");
+
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
@@ -361,6 +393,7 @@ app.use("/funcionarios",      funcionariosRoutes);
 app.use("/modelos-contrato",  modelosContratoRoutes);
 app.use("/email-config",      emailConfigRoutes);
 app.use("/historico-movimentacoes", historicoMovimentacoesRoutes);
+app.use("/ferias",                 feriasRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 
