@@ -75,7 +75,11 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
 router.get("/", auth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT ca.id, ca.nome_funcionario AS "nomeFuncionario", ca.cpf,
+      // M5: CPF mascarado na listagem — ROLLBACK: substituir CASE por apenas ca.cpf
+      `SELECT ca.id, ca.nome_funcionario AS "nomeFuncionario",
+              CASE WHEN ca.cpf IS NULL THEN NULL
+                   WHEN LENGTH(ca.cpf) >= 5 THEN LEFT(ca.cpf,3) || '.***.***-' || RIGHT(ca.cpf,2)
+                   ELSE '***' END AS cpf,
               ca.funcionario_id AS "funcionarioId",
               COUNT(i.id)::int AS "totalItens", ca.created_at AS "createdAt"
          FROM controle_ativos ca

@@ -10,7 +10,10 @@ router.get("/", auth, async (req, res) => {
       `SELECT id,
               item_id          AS "itemId",
               funcionario_nome AS "funcionarioNome",
-              funcionario_cpf  AS "funcionarioCpf",
+              -- M5: CPF mascarado — ROLLBACK: substituir CASE por: funcionario_cpf AS "funcionarioCpf"
+              CASE WHEN funcionario_cpf IS NULL THEN NULL
+                   WHEN LENGTH(funcionario_cpf) >= 5 THEN LEFT(funcionario_cpf,3) || '.***.***-' || RIGHT(funcionario_cpf,2)
+                   ELSE '***' END AS "funcionarioCpf",
               tipo_movimentacao AS "tipoMovimentacao",
               usuario_nome     AS "usuarioNome",
               company_name     AS "companyName",
