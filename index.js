@@ -57,13 +57,14 @@ app.use(cors({
   credentials: true,
 }));
 
-// Limite global 5 MB; rotas de upload e e-mail têm limite próprio
+// H4 — Body limit segmentado por rota
+// ROLLBACK: se algum upload começar a falhar com 413, aumentar o global abaixo de volta para "5mb"
+// Rotas que recebem arquivos grandes (base64): logo de empresa, PDF de contrato, anexos de ativos
+const HIGH_LIMIT_ROUTES = ["/email/enviar-contrato", "/companies", "/controle-ativos"];
 app.use((req, res, next) => {
-  const highLimit = ["/email/enviar-contrato", "/companies"];
-  if (highLimit.some(p => req.path.startsWith(p))) return next();
-  express.json({ limit: "5mb" })(req, res, next);
+  const isHighLimit = HIGH_LIMIT_ROUTES.some(p => req.path.startsWith(p));
+  express.json({ limit: isHighLimit ? "50mb" : "2mb" })(req, res, next);
 });
-app.use(express.json({ limit: "50mb" }));
 
 // Auto-migrate
 pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT").catch(err => logger.error("[migration]", err.message));
