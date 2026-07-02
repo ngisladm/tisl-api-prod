@@ -46,14 +46,14 @@ INNER JOIN Rm_dim_Funcoes fc
 INNER JOIN Rm_dim_ccusto cc
     ON f.NROCENCUSTOCONT = cc.CODCCUSTO
    AND f.CODCOLIGADA = cc.CODCOLIGADA
-WHERE f.CODSITUACAO = 'A'
+WHERE f.CODSITUACAO <> 'D'
   AND (
         f.CODCOLIGADA <> 4
         OR NOT EXISTS (
             SELECT 1
             FROM Rm_fato_funcionarios f2
             WHERE f2.NOME = f.NOME
-              AND f2.CODSITUACAO = 'A'
+              AND f2.CODSITUACAO <> 'D'
               AND f2.CODCOLIGADA <> 4
         )
       )
