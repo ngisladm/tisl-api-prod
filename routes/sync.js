@@ -5,8 +5,7 @@ const auth    = require("../middleware/auth");
 const sql     = require("mssql");
 
 // C2: credenciais exclusivamente via variáveis de ambiente (sem fallback hardcoded)
-// ROLLBACK: adicionar após cada variável: || "valor_original"
-// user: "usr_dados" | password: "H5{;ha(-F-4u%[`aH$" | server: "172.22.0.16" | port: "1433"
+// ROLLBACK: restaurar valores a partir do gerenciador de segredos ou .env do servidor
 const mssqlConfig = {
   user:     process.env.MSSQL_USER,
   password: process.env.MSSQL_PASSWORD,

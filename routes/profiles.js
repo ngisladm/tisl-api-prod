@@ -5,7 +5,7 @@ const auth    = require("../middleware/auth");
 const { invalidateCache } = require("../middleware/canAccess");
 
 // GET /profiles
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s1"), async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT id, name, permissions, created_at FROM profiles ORDER BY name"
@@ -18,7 +18,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 // POST /profiles
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s1","edit"), async (req, res) => {
   const { name, permissions = {} } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
 
@@ -35,7 +35,7 @@ router.post("/", auth, async (req, res) => {
 });
 
 // PUT /profiles/:id
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s1","edit"), async (req, res) => {
   const { name, permissions } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
 
@@ -54,7 +54,7 @@ router.put("/:id", auth, async (req, res) => {
 });
 
 // DELETE /profiles/:id
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s1","edit"), async (req, res) => {
   try {
     await pool.query("DELETE FROM profiles WHERE id=$1", [req.params.id]);
     res.json({ success: true });

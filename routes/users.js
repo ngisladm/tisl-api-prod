@@ -3,6 +3,10 @@ const router  = express.Router();
 const bcrypt  = require("bcrypt");
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
+
+const onlyMaster = (req, res, next) =>
+  req.user.isMaster ? next() : res.status(403).json({ error: "Apenas usuários Master podem executar esta operação." });
 
 // GET /users/me — perfil do usuário logado
 router.get("/me", auth, async (req, res) => {
@@ -58,7 +62,7 @@ router.put("/me/password", auth, async (req, res) => {
 });
 
 // GET /users
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s2"), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.apelido, u.email, u.active,
@@ -83,7 +87,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 // POST /users
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s2","edit"), async (req, res) => {
   const { name, apelido, email, password, profileId, companyId, teamId, active = true, isMaster = false } = req.body;
   if (!name?.trim() || !email?.trim())
     return res.status(400).json({ error: "Nome e e-mail são obrigatórios." });
@@ -109,7 +113,7 @@ router.post("/", auth, async (req, res) => {
 });
 
 // PUT /users/:id
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s2","edit"), async (req, res) => {
   const { name, apelido, email, password, profileId, companyId, teamId, active, isMaster } = req.body;
   if (!name?.trim() || !email?.trim())
     return res.status(400).json({ error: "Nome e e-mail são obrigatórios." });
@@ -138,9 +142,12 @@ router.put("/:id", auth, async (req, res) => {
 });
 
 // DELETE /users/:id
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s2","edit"), async (req, res) => {
+  if (req.params.id === req.user.id)
+    return res.status(400).json({ error: "Não é possível excluir o próprio usuário." });
   try {
-    await pool.query("DELETE FROM users WHERE id=$1", [req.params.id]);
+    const r = await pool.query("DELETE FROM users WHERE id=$1", [req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "Usuário não encontrado." });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
