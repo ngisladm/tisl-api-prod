@@ -1,9 +1,11 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
-// DB_SSL=false  → sem SSL (conexão interna Docker)
-// DB_SSL=true   → SSL sem verificar certificado (Render, cloud)
-const useSsl = process.env.DB_SSL !== "false";
+// DB_SSL=false  → sem SSL (padrão Docker interno)
+// DB_SSL=true   → SSL com certificado autoassinado aceito (C4)
+const sslConfig = process.env.DB_SSL === "true"
+  ? { rejectUnauthorized: false }
+  : false;
 
 const poolConfig = {
   max: 10,
@@ -15,7 +17,7 @@ const pool = process.env.DATABASE_URL
   ? new Pool({
       ...poolConfig,
       connectionString: process.env.DATABASE_URL,
-      ssl: useSsl ? { rejectUnauthorized: false } : false,
+      ssl: sslConfig,
     })
   : new Pool({
       ...poolConfig,
