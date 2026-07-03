@@ -11,6 +11,79 @@ const parseDate = str => {
   return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
 };
 
+// ── Relatório de Férias (s31) ───────────────────────────────────
+
+router.get("/relatorio", auth, canAccess("s31"), async (req, res) => {
+  const { companyId, teamId, ano, funcionarioId, chamado } = req.query;
+  const conditions = [];
+  const params = [];
+  let idx = 1;
+
+  if (companyId)     { conditions.push(`f.company_id = $${idx++}`);      params.push(companyId); }
+  if (teamId)        { conditions.push(`f.team_id = $${idx++}`);         params.push(teamId); }
+  if (ano)           { conditions.push(`f.ano = $${idx++}`);             params.push(parseInt(ano)); }
+  if (funcionarioId) { conditions.push(`fe.funcionario_id = $${idx++}`); params.push(funcionarioId); }
+  if (chamado)       { conditions.push(`fe.chamado ILIKE $${idx++}`);    params.push(`%${chamado}%`); }
+
+  const where = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
+
+  try {
+    const equipeRows = await pool.query(
+      `SELECT fe.id                                                            AS "feriasEquipeId",
+              f.ano,
+              c.name                                                           AS "empresaNome",
+              t.name                                                           AS "equipeNome",
+              fn.nome                                                          AS "funcionarioNome",
+              TO_CHAR(fe.data_ferias,'DD/MM/YYYY')                            AS "dtInicFer",
+              TO_CHAR(fe.dt_final_fer,'DD/MM/YYYY')                           AS "dtFinalFer",
+              fe.chamado,
+              fe.dias_vendidos                                                 AS "diasVendidos",
+              fe.total_dias                                                    AS "totalDias",
+              (fe.total_dias - fe.dias_vendidos)                              AS "diasGozo",
+              COALESCE(p.soma_qtde, 0)                                        AS "somaQtde",
+              ((fe.total_dias - fe.dias_vendidos) - COALESCE(p.soma_qtde,0)) AS "saldoDias"
+         FROM ferias_equipe fe
+         JOIN ferias        f  ON f.id  = fe.ferias_id
+         LEFT JOIN companies   c  ON c.id  = f.company_id
+         LEFT JOIN teams       t  ON t.id  = f.team_id
+         LEFT JOIN funcionarios fn ON fn.id = fe.funcionario_id
+         LEFT JOIN (
+           SELECT ferias_equipe_id, SUM(qtde_dias) AS soma_qtde
+             FROM periodos_ferias GROUP BY ferias_equipe_id
+         ) p ON p.ferias_equipe_id = fe.id
+         ${where}
+         ORDER BY f.ano DESC, c.name, t.name, fn.nome`,
+      params
+    );
+
+    if (!equipeRows.rows.length) return res.json([]);
+
+    const ids = equipeRows.rows.map(r => r.feriasEquipeId);
+    const periodosRows = await pool.query(
+      `SELECT ferias_equipe_id                   AS "feriasEquipeId",
+              TO_CHAR(data_inicial,'DD/MM/YYYY') AS "dataInicial",
+              TO_CHAR(data_final,'DD/MM/YYYY')   AS "dataFinal",
+              qtde_dias                          AS "qtdeDias"
+         FROM periodos_ferias
+        WHERE ferias_equipe_id = ANY($1)
+        ORDER BY data_inicial`,
+      [ids]
+    );
+
+    const periodosMap = {};
+    for (const p of periodosRows.rows) {
+      if (!periodosMap[p.feriasEquipeId]) periodosMap[p.feriasEquipeId] = [];
+      periodosMap[p.feriasEquipeId].push({
+        dataInicial: p.dataInicial,
+        dataFinal:   p.dataFinal,
+        qtdeDias:    p.qtdeDias,
+      });
+    }
+
+    res.json(equipeRows.rows.map(r => ({ ...r, periodos: periodosMap[r.feriasEquipeId] || [] })));
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao gerar relatório de férias." }); }
+});
+
 // ── Férias (cabeçalho) ──────────────────────────────────────────
 
 router.get("/", auth, canAccess("s30"), async (req, res) => {
