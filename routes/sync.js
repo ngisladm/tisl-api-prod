@@ -4,10 +4,13 @@ const pool    = require("../db");
 const auth    = require("../middleware/auth");
 const sql     = require("mssql");
 
+// C2: credenciais exclusivamente via variáveis de ambiente (sem fallback hardcoded)
+// ROLLBACK: adicionar após cada variável: || "valor_original"
+// user: "usr_dados" | password: "H5{;ha(-F-4u%[`aH$" | server: "172.22.0.16" | port: "1433"
 const mssqlConfig = {
-  user:     process.env.MSSQL_USER     || "usr_dados",
-  password: process.env.MSSQL_PASSWORD || "H5{;ha(-F-4u%[`aH$",
-  server:   process.env.MSSQL_HOST     || "172.22.0.16",
+  user:     process.env.MSSQL_USER,
+  password: process.env.MSSQL_PASSWORD,
+  server:   process.env.MSSQL_HOST,
   // MSSQL_DATABASE: deixe vazio para usar o banco padrão do usuário,
   // ou defina no .env com o nome correto (ex: CORP, TOTVS, RM, etc.)
   ...(process.env.MSSQL_DATABASE ? { database: process.env.MSSQL_DATABASE } : {}),
