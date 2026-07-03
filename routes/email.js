@@ -3,6 +3,7 @@ const router     = express.Router();
 const pool       = require("../db");
 const auth       = require("../middleware/auth");
 const nodemailer = require("nodemailer");
+const { decrypt } = require("./email-config");
 
 // POST /email/enviar-contrato
 router.post("/enviar-contrato", auth, async (req, res) => {
@@ -22,7 +23,7 @@ router.post("/enviar-contrato", auth, async (req, res) => {
       host: cfg.host,
       port: cfg.port || 587,
       secure: cfg.secure || false,
-      auth: { user: cfg.user_email, pass: cfg.password },
+      auth: { user: cfg.user_email, pass: cfg.password ? decrypt(cfg.password) : "" },
       tls: { rejectUnauthorized: false },
     });
 
