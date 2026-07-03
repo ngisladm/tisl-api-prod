@@ -2,7 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
-const { invalidateCache } = require("../middleware/canAccess");
+const { canAccess, invalidateCache } = require("../middleware/canAccess");
 
 // GET /profiles
 router.get("/", auth, canAccess("s1"), async (req, res) => {
