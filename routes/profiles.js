@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { invalidateCache } = require("../middleware/canAccess");
 
 // GET /profiles
 router.get("/", auth, async (req, res) => {
@@ -44,6 +45,7 @@ router.put("/:id", auth, async (req, res) => {
       [name.trim(), JSON.stringify(permissions), req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Perfil não encontrado." });
+    invalidateCache(req.params.id);
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);

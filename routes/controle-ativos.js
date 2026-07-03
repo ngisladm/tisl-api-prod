@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
 
 // Registra snapshot do item no histórico de movimentações
 async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome, funcionarioDestinoNome) {
@@ -72,7 +73,7 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
 
 // ── Controle de Ativos (cabeçalho) ──────────────────────────
 
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s21"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ca.id, ca.nome_funcionario AS "nomeFuncionario", ca.cpf,
@@ -86,7 +87,7 @@ router.get("/", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar controle de ativos." }); }
 });
 
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s21","edit"), async (req, res) => {
   const { nomeFuncionario, cpf, funcionarioId } = req.body;
   if (!nomeFuncionario?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
   try {
@@ -105,7 +106,7 @@ router.post("/", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar registro." }); }
 });
 
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s21","edit"), async (req, res) => {
   const { nomeFuncionario, cpf, funcionarioId } = req.body;
   if (!nomeFuncionario?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
   try {
@@ -119,7 +120,7 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar registro." }); }
 });
 
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s21","edit"), async (req, res) => {
   try {
     await pool.query("DELETE FROM itens_controle_ativos WHERE controle_ativo_id=$1", [req.params.id]);
     await pool.query("DELETE FROM controle_ativos WHERE id=$1", [req.params.id]);
@@ -130,7 +131,7 @@ router.delete("/:id", auth, async (req, res) => {
 // ── Itens de Controle de Ativos ───────────────────────────────
 
 // Retorna todos os itens (resumido) para filtros na tela principal
-router.get("/itens/all", auth, async (req, res) => {
+router.get("/itens/all", auth, canAccess("s21"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT i.controle_ativo_id AS "controleAtivoId",
@@ -153,7 +154,7 @@ router.get("/itens/all", auth, async (req, res) => {
 });
 
 // Retorna todos os itens com info completa para relatórios
-router.get("/itens/relatorio", auth, async (req, res) => {
+router.get("/itens/relatorio", auth, canAccess("s21"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ca.nome_funcionario AS "nomeFuncionario", ca.cpf, ca.funcionario_id AS "funcionarioId",
@@ -184,7 +185,7 @@ router.get("/itens/relatorio", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar dados." }); }
 });
 
-router.get("/:id/itens", auth, async (req, res) => {
+router.get("/:id/itens", auth, canAccess("s21"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT i.id,
@@ -222,7 +223,7 @@ const parseDate = str => {
   return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
 };
 
-router.post("/:id/itens", auth, async (req, res) => {
+router.post("/:id/itens", auth, canAccess("s21","edit"), async (req, res) => {
   const f = req.body;
   try {
     const r = await pool.query(
@@ -253,7 +254,7 @@ router.post("/:id/itens", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar item." }); }
 });
 
-router.put("/:id/itens/:itemId", auth, async (req, res) => {
+router.put("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res) => {
   const f = req.body;
   try {
     // Busca valores antigos para gerenciar mudança de ativo/linha
@@ -299,7 +300,7 @@ router.put("/:id/itens/:itemId", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar item." }); }
 });
 
-router.delete("/:id/itens/:itemId", auth, async (req, res) => {
+router.delete("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res) => {
   try {
     // V11: libera ativo e linha antes de excluir
     const old = await pool.query("SELECT ativo_id, linha_id FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
@@ -315,7 +316,7 @@ router.delete("/:id/itens/:itemId", auth, async (req, res) => {
 });
 
 // ── Movimentações ─────────────────────────────────────────────
-router.post("/:id/itens/:itemId/movimentacao", auth, async (req, res) => {
+router.post("/:id/itens/:itemId/movimentacao", auth, canAccess("s21","edit"), async (req, res) => {
   const { tipoMovimentacao, funcionarioId } = req.body;
   console.log(`[movimentacao] tipo=${tipoMovimentacao} itemId=${req.params.itemId} controleId=${req.params.id} funcionarioId=${funcionarioId}`);
   if (!["Transferência","Baixa","Devolução Estoque"].includes(tipoMovimentacao))
@@ -520,7 +521,7 @@ router.post("/carga-inicial", auth, async (req, res) => {
 
 // ── Anexos ────────────────────────────────────────────────────
 
-router.put("/:id/itens/:itemId/anexos", auth, async (req, res) => {
+router.put("/:id/itens/:itemId/anexos", auth, canAccess("s21","edit"), async (req, res) => {
   const { attachments } = req.body;
   try {
     await pool.query(

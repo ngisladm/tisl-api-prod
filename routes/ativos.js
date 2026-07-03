@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
 
 const FIELDS = `
   a.id, a.nome,
@@ -20,7 +21,7 @@ const FIELDS = `
   COALESCE(a.status,'Em Estoque') AS status
 `;
 
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s20"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ${FIELDS}
@@ -40,7 +41,7 @@ const parseDate = str => {
   return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
 };
 
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
           dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2 } = req.body;
@@ -64,7 +65,7 @@ router.post("/", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar ativo." }); }
 });
 
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
           dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2 } = req.body;
@@ -90,7 +91,7 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar ativo." }); }
 });
 
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   try {
     await pool.query("DELETE FROM ativos WHERE id=$1", [req.params.id]);
     res.json({ success: true });

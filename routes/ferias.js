@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
 
 const parseDate = str => {
   if (!str) return null;
@@ -12,7 +13,7 @@ const parseDate = str => {
 
 // ── Férias (cabeçalho) ──────────────────────────────────────────
 
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s30"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT f.id, f.ano,
@@ -27,7 +28,7 @@ router.get("/", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar férias." }); }
 });
 
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s30","edit"), async (req, res) => {
   const { companyId, teamId, ano } = req.body;
   if (!ano) return res.status(400).json({ error: "Ano é obrigatório." });
   try {
@@ -39,7 +40,7 @@ router.post("/", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar férias." }); }
 });
 
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s30","edit"), async (req, res) => {
   const { companyId, teamId, ano } = req.body;
   if (!ano) return res.status(400).json({ error: "Ano é obrigatório." });
   try {
@@ -52,7 +53,7 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar férias." }); }
 });
 
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s30","edit"), async (req, res) => {
   try {
     await pool.query("DELETE FROM ferias WHERE id=$1", [req.params.id]);
     res.json({ success: true });

@@ -2,9 +2,10 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
 
 // GET /linhas-disponiveis
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s19"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ld.id, ld.numero_linha AS "numeroLinha", ld.status,
@@ -24,7 +25,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 // POST /linhas-disponiveis
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, canAccess("s19","edit"), async (req, res) => {
   const { companyId, operadoraId, tipoAtivoId, numeroLinha, acesso, estrutura, iccid, tipoPacote } = req.body;
   if (!numeroLinha?.trim()) return res.status(400).json({ error: "Número da linha é obrigatório." });
   try {
@@ -42,7 +43,7 @@ router.post("/", auth, async (req, res) => {
 });
 
 // PUT /linhas-disponiveis/:id
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, canAccess("s19","edit"), async (req, res) => {
   const { companyId, operadoraId, tipoAtivoId, numeroLinha, acesso, estrutura, iccid, tipoPacote } = req.body;
   if (!numeroLinha?.trim()) return res.status(400).json({ error: "Número da linha é obrigatório." });
   try {
@@ -147,7 +148,7 @@ router.post("/:id/reverter-baixa", auth, async (req, res) => {
 });
 
 // DELETE /linhas-disponiveis/:id
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, canAccess("s19","edit"), async (req, res) => {
   try {
     await pool.query("DELETE FROM linhas_disponiveis WHERE id=$1", [req.params.id]);
     res.json({ success: true });

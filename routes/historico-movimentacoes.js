@@ -2,9 +2,10 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { canAccess } = require("../middleware/canAccess");
 
 // GET /historico-movimentacoes
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, canAccess("s29"), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT id,
