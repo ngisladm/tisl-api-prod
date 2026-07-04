@@ -367,6 +367,31 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s30','Férias','Movimenta
 migrate("INSERT INTO screens (id,name,module) VALUES ('s31','Relatório de Férias','Relatórios') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s31\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's31')");
 
+// Itens de Equipe
+migrate(`CREATE TABLE IF NOT EXISTS equipe_itens (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id        UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  funcionario_id UUID NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (team_id, funcionario_id)
+)`);
+// Funcionário vinculado ao usuário (1:1)
+migrate("ALTER TABLE users ADD COLUMN IF NOT EXISTS funcionario_id UUID UNIQUE REFERENCES funcionarios(id) ON DELETE SET NULL");
+// Trocar user_id por funcionario_id nas tabelas de lançamento
+migrate("ALTER TABLE extra_avulso ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)");
+migrate("ALTER TABLE extra_avulso DROP COLUMN IF EXISTS user_id");
+migrate("ALTER TABLE km_records ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)");
+migrate("ALTER TABLE km_records DROP COLUMN IF EXISTS user_id");
+migrate("ALTER TABLE escala_turnos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)");
+migrate("ALTER TABLE escala_turnos DROP COLUMN IF EXISTS user_id");
+// Um funcionário só pode estar em uma equipe
+migrate(`DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'equipe_itens_funcionario_unique') THEN
+    ALTER TABLE equipe_itens ADD CONSTRAINT equipe_itens_funcionario_unique UNIQUE (funcionario_id);
+  END IF;
+END $$`);
+
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));

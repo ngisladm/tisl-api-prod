@@ -137,7 +137,7 @@ router.get("/:id/turnos", auth, async (req, res) => {
     const result = await pool.query(
       `SELECT id, escala_id AS "escalaId",
               TO_CHAR(turno_date,'YYYY-MM-DD') AS "turnoDate",
-              turno, user_id AS "userId",
+              turno, funcionario_id AS "funcionarioId",
               is_feriado AS "isFeriado",
               TO_CHAR(hora_inicio, 'HH24:MI') AS "horaInicio",
               TO_CHAR(hora_fim,    'HH24:MI') AS "horaFim",
@@ -156,20 +156,19 @@ router.get("/:id/turnos", auth, async (req, res) => {
   }
 });
 
-// POST /escalas/:id/turnos — upsert responsável do turno (dia+turno+userId)
+// POST /escalas/:id/turnos — upsert responsável do turno (dia+turno+funcionarioId)
 router.post("/:id/turnos", auth, async (req, res) => {
-  const { turnoDate, turno, userId } = req.body;
+  const { turnoDate, turno, funcionarioId } = req.body;
   if (!turnoDate || !turno) return res.status(400).json({ error: "turnoDate e turno são obrigatórios." });
   try {
-    if (!userId) {
+    if (!funcionarioId) {
       await pool.query(
         "DELETE FROM escala_turnos WHERE escala_id=$1 AND turno_date=$2 AND turno=$3",
         [req.params.id, turnoDate, turno]
       );
     } else {
-      // Determine default times based on day of week
       const d = new Date(turnoDate + "T12:00:00Z");
-      const dow = d.getUTCDay(); // 0=Sun,6=Sat
+      const dow = d.getUTCDay();
       const isWeekend = dow === 0 || dow === 6;
       let horaInicio, horaFim;
       if (!isWeekend) {
@@ -180,12 +179,12 @@ router.post("/:id/turnos", auth, async (req, res) => {
         horaFim    = turno === "turno1" ? "12:00" : "00:00";
       }
       const upsert = await pool.query(
-        `INSERT INTO escala_turnos (escala_id, turno_date, turno, user_id, hora_inicio, hora_fim, is_feriado)
+        `INSERT INTO escala_turnos (escala_id, turno_date, turno, funcionario_id, hora_inicio, hora_fim, is_feriado)
          VALUES ($1,$2,$3,$4,$5,$6,FALSE)
          ON CONFLICT (escala_id, turno_date, turno)
-         DO UPDATE SET user_id=$4, hora_inicio=COALESCE(escala_turnos.hora_inicio,$5), hora_fim=COALESCE(escala_turnos.hora_fim,$6)
+         DO UPDATE SET funcionario_id=$4, hora_inicio=COALESCE(escala_turnos.hora_inicio,$5), hora_fim=COALESCE(escala_turnos.hora_fim,$6)
          RETURNING id`,
-        [req.params.id, turnoDate, turno, userId, horaInicio, horaFim]
+        [req.params.id, turnoDate, turno, funcionarioId, horaInicio, horaFim]
       );
       return res.json({ success: true, id: upsert.rows[0]?.id });
     }
@@ -242,17 +241,17 @@ router.get("/:id/relatorio-calendario", auth, async (req, res) => {
       `SELECT et.id,
               TO_CHAR(et.turno_date,'YYYY-MM-DD') AS "turnoDate",
               et.turno,
-              et.user_id   AS "userId",
-              et.is_feriado AS "isFeriado",
+              et.funcionario_id AS "funcionarioId",
+              et.is_feriado     AS "isFeriado",
               TO_CHAR(et.hora_inicio,  'HH24:MI') AS "horaInicio",
               TO_CHAR(et.hora_fim,     'HH24:MI') AS "horaFim",
               TO_CHAR(et.extra_inicio, 'HH24:MI') AS "extraInicio",
               TO_CHAR(et.extra_fim,    'HH24:MI') AS "extraFim",
               et.observacao,
-              u.name AS "userName"
+              fn.nome AS "userName"
          FROM escala_turnos et
-         LEFT JOIN users u ON u.id = et.user_id
-        WHERE et.escala_id=$1
+         LEFT JOIN funcionarios fn ON fn.id = et.funcionario_id
+        WHERE et.escala_id = $1
         ORDER BY et.turno_date, et.turno`,
       [req.params.id]
     );
@@ -266,7 +265,7 @@ router.get("/:id/relatorio-calendario", auth, async (req, res) => {
 
 // GET /escalas/relatorio/horas
 router.get("/relatorio/horas", auth, async (req, res) => {
-  const { dataInicio, dataFim, userId, teamId, companyId } = req.query;
+  const { dataInicio, dataFim, funcionarioId, teamId, companyId } = req.query;
   if (!dataInicio || !dataFim) return res.status(400).json({ error: "Período obrigatório." });
 
   const parseDate = (str) => { const [d,m,y] = str.split("/"); return `${y}-${m}-${d}`; };
@@ -282,32 +281,33 @@ router.get("/relatorio/horas", auth, async (req, res) => {
 
   try {
     // ── 1. Buscar turnos de escala no período ──────────────────
-    const turnoFilters = ["et.turno_date BETWEEN $1 AND $2","et.user_id IS NOT NULL"];
+    const turnoFilters = ["et.turno_date BETWEEN $1 AND $2","et.funcionario_id IS NOT NULL"];
     const turnoParams  = [di, df];
     let i = 3;
-    if (userId)    { turnoFilters.push(`et.user_id    = $${i++}`); turnoParams.push(userId); }
-    if (teamId)    { turnoFilters.push(`u.team_id     = $${i++}`); turnoParams.push(teamId); }
-    if (companyId) { turnoFilters.push(`e.company_id  = $${i++}`); turnoParams.push(companyId); }
+    if (funcionarioId) { turnoFilters.push(`et.funcionario_id = $${i++}`); turnoParams.push(funcionarioId); }
+    if (teamId)        { turnoFilters.push(`ei.team_id        = $${i++}`); turnoParams.push(teamId); }
+    if (companyId)     { turnoFilters.push(`e.company_id      = $${i++}`); turnoParams.push(companyId); }
 
     const turnosResult = await pool.query(
       `SELECT et.escala_id AS "escalaId",
               TO_CHAR(et.turno_date,'YYYY-MM-DD') AS "turnoDate",
               et.turno,
-              et.user_id    AS "userId",
-              et.is_feriado AS "isFeriado",
+              et.funcionario_id AS "funcionarioId",
+              et.is_feriado     AS "isFeriado",
               EXTRACT(DOW FROM et.turno_date)      AS "dow",
               TO_CHAR(et.hora_inicio,  'HH24:MI') AS "horaInicio",
               TO_CHAR(et.hora_fim,     'HH24:MI') AS "horaFim",
               TO_CHAR(et.extra_inicio, 'HH24:MI') AS "extraInicio",
               TO_CHAR(et.extra_fim,    'HH24:MI') AS "extraFim",
-              u.name AS "userName",
-              t.id   AS "teamId",  t.name AS "teamName"
+              fn.nome AS "userName",
+              t.id    AS "teamId",  t.name AS "teamName"
          FROM escala_turnos et
-         JOIN escalas   e ON e.id   = et.escala_id
-         JOIN users     u ON u.id   = et.user_id
-         JOIN teams     t ON t.id   = u.team_id
+         JOIN escalas            e  ON e.id  = et.escala_id
+         JOIN funcionarios       fn ON fn.id = et.funcionario_id
+         JOIN equipe_itens       ei ON ei.funcionario_id = et.funcionario_id
+         JOIN teams              t  ON t.id  = ei.team_id
         WHERE ${turnoFilters.join(" AND ")}
-        ORDER BY t.name, u.name, et.turno_date, et.turno`,
+        ORDER BY t.name, fn.nome, et.turno_date, et.turno`,
       turnoParams
     );
 
@@ -315,49 +315,46 @@ router.get("/relatorio/horas", auth, async (req, res) => {
     const avulsoFilters = ["ea.data BETWEEN $1 AND $2"];
     const avulsoParams  = [di, df];
     let j = 3;
-    if (userId)    { avulsoFilters.push(`ea.user_id    = $${j++}`); avulsoParams.push(userId); }
-    if (teamId)    { avulsoFilters.push(`ea.team_id    = $${j++}`); avulsoParams.push(teamId); }
-    if (companyId) { avulsoFilters.push(`ea.company_id = $${j++}`); avulsoParams.push(companyId); }
+    if (funcionarioId) { avulsoFilters.push(`ea.funcionario_id = $${j++}`); avulsoParams.push(funcionarioId); }
+    if (teamId)        { avulsoFilters.push(`ea.team_id        = $${j++}`); avulsoParams.push(teamId); }
+    if (companyId)     { avulsoFilters.push(`ea.company_id     = $${j++}`); avulsoParams.push(companyId); }
 
     const avulsosResult = await pool.query(
-      `SELECT ea.user_id    AS "userId",
+      `SELECT ea.funcionario_id AS "funcionarioId",
               TO_CHAR(ea.data,        'YYYY-MM-DD') AS "data",
               TO_CHAR(ea.hora_inicio, 'HH24:MI')    AS "horaInicio",
               TO_CHAR(ea.hora_fim,    'HH24:MI')    AS "horaFim",
-              u.name AS "userName",
-              t.id   AS "teamId",  t.name AS "teamName"
+              fn.nome AS "userName",
+              t.id    AS "teamId",  t.name AS "teamName"
          FROM extra_avulso ea
-         JOIN users  u ON u.id = ea.user_id
-         JOIN teams  t ON t.id = ea.team_id
+         JOIN funcionarios fn ON fn.id = ea.funcionario_id
+         JOIN teams        t  ON t.id  = ea.team_id
         WHERE ${avulsoFilters.join(" AND ")}`,
       avulsoParams
     );
 
-    // ── 3. Montar mapa de extras avulsos por userId+data ───────
-    // avulsoMap[userId][date] = totalMinutes
+    // ── 3. Montar mapa de extras avulsos por funcionarioId+data ─
     const avulsoMap = {};
     for (const row of avulsosResult.rows) {
       let mins = toMinutes(row.horaFim) - toMinutes(row.horaInicio);
       if (mins < 0) mins += 1440;
-      if (!avulsoMap[row.userId]) avulsoMap[row.userId] = {};
-      avulsoMap[row.userId][row.data] = (avulsoMap[row.userId][row.data] || 0) + mins;
+      if (!avulsoMap[row.funcionarioId]) avulsoMap[row.funcionarioId] = {};
+      avulsoMap[row.funcionarioId][row.data] = (avulsoMap[row.funcionarioId][row.data] || 0) + mins;
     }
 
-    // ── 4. Agregar por equipe/usuário ──────────────────────────
+    // ── 4. Agregar por equipe/funcionário ──────────────────────
     const teamMap = {};
 
-    // Ensure teams from avulsos also appear even if no escala turno
     for (const row of avulsosResult.rows) {
       if (!teamMap[row.teamId]) teamMap[row.teamId] = { teamId:row.teamId, teamName:row.teamName, users:{} };
-      if (!teamMap[row.teamId].users[row.userId])
-        teamMap[row.teamId].users[row.userId] = { userId:row.userId, userName:row.userName, sobreavisoMins:0, extraTurnoMins:0, extraAvulsoMins:0, plantoes:0 };
+      if (!teamMap[row.teamId].users[row.funcionarioId])
+        teamMap[row.teamId].users[row.funcionarioId] = { userId:row.funcionarioId, userName:row.userName, sobreavisoMins:0, extraTurnoMins:0, extraAvulsoMins:0, plantoes:0 };
     }
 
     for (const row of turnosResult.rows) {
       const isWeekendOrFeriado = row.isFeriado || row.dow==0 || row.dow==6;
       const turnoTotalMins     = turnoHoras(row.turno, isWeekendOrFeriado);
 
-      // Extra do turno
       let extraTurnoMins = 0;
       if (row.extraInicio && row.extraFim) {
         let d = toMinutes(row.extraFim) - toMinutes(row.extraInicio);
@@ -365,28 +362,25 @@ router.get("/relatorio/horas", auth, async (req, res) => {
         extraTurnoMins = d;
       }
 
-      // Extra avulso no mesmo dia do turno (se houver)
-      const extraAvulsoDia = (avulsoMap[row.userId]?.[row.turnoDate]) || 0;
-
-      // Sobreaviso = horas do turno - extra do turno - extra avulso do mesmo dia
+      const extraAvulsoDia = (avulsoMap[row.funcionarioId]?.[row.turnoDate]) || 0;
       const sobreavisoMins = Math.max(0, turnoTotalMins - extraTurnoMins - extraAvulsoDia);
 
       if (!teamMap[row.teamId]) teamMap[row.teamId] = { teamId:row.teamId, teamName:row.teamName, users:{} };
       const team = teamMap[row.teamId];
-      if (!team.users[row.userId])
-        team.users[row.userId] = { userId:row.userId, userName:row.userName, sobreavisoMins:0, extraTurnoMins:0, extraAvulsoMins:0, plantoes:0 };
+      if (!team.users[row.funcionarioId])
+        team.users[row.funcionarioId] = { userId:row.funcionarioId, userName:row.userName, sobreavisoMins:0, extraTurnoMins:0, extraAvulsoMins:0, plantoes:0 };
 
-      team.users[row.userId].sobreavisoMins  += sobreavisoMins;
-      team.users[row.userId].extraTurnoMins  += extraTurnoMins;
-      team.users[row.userId].plantoes        += 1;
+      team.users[row.funcionarioId].sobreavisoMins  += sobreavisoMins;
+      team.users[row.funcionarioId].extraTurnoMins  += extraTurnoMins;
+      team.users[row.funcionarioId].plantoes        += 1;
     }
 
-    // Somar extras avulsos totais por usuário
-    for (const [uid, dateMap] of Object.entries(avulsoMap)) {
+    // Somar extras avulsos totais por funcionário
+    for (const [fid, dateMap] of Object.entries(avulsoMap)) {
       const totalAvulso = Object.values(dateMap).reduce((s,v)=>s+v, 0);
       for (const team of Object.values(teamMap)) {
-        if (team.users[uid]) {
-          team.users[uid].extraAvulsoMins += totalAvulso;
+        if (team.users[fid]) {
+          team.users[fid].extraAvulsoMins += totalAvulso;
         }
       }
     }
