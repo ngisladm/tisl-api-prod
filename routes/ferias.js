@@ -14,16 +14,46 @@ const parseDate = str => {
 // ── Relatório de Férias (s31) ───────────────────────────────────
 
 router.get("/relatorio", auth, canAccess("s31"), async (req, res) => {
-  const { companyId, teamId, ano, funcionarioId, chamado } = req.query;
+  const {
+    companyId, teamIds, ano, funcionarioId, chamado,
+    diasNaoProgramados,
+    dtInicFerDe, dtInicFerAte,
+    dtInicProgrDe, dtInicProgrAte,
+  } = req.query;
+
   const conditions = [];
   const params = [];
   let idx = 1;
 
   if (companyId)     { conditions.push(`f.company_id = $${idx++}`);      params.push(companyId); }
-  if (teamId)        { conditions.push(`f.team_id = $${idx++}`);         params.push(teamId); }
+
+  if (teamIds) {
+    const ids = teamIds.split(",").map(s => s.trim()).filter(Boolean);
+    if (ids.length === 1) { conditions.push(`f.team_id = $${idx++}`); params.push(ids[0]); }
+    else if (ids.length > 1) { conditions.push(`f.team_id = ANY($${idx++})`); params.push(ids); }
+  }
+
   if (ano)           { conditions.push(`f.ano = $${idx++}`);             params.push(parseInt(ano)); }
   if (funcionarioId) { conditions.push(`fe.funcionario_id = $${idx++}`); params.push(funcionarioId); }
   if (chamado)       { conditions.push(`fe.chamado ILIKE $${idx++}`);    params.push(`%${chamado}%`); }
+
+  // Filtro Dias não Programados — referencia o alias calculado via subquery p
+  if (diasNaoProgramados === "zerado")
+    conditions.push(`((fe.total_dias - fe.dias_vendidos) - COALESCE(p.soma_qtde, 0)) = 0`);
+  else if (diasNaoProgramados === "naoZerado")
+    conditions.push(`((fe.total_dias - fe.dias_vendidos) - COALESCE(p.soma_qtde, 0)) <> 0`);
+
+  // Período Inic Férias — fe.data_ferias
+  if (dtInicFerDe)  { conditions.push(`fe.data_ferias >= $${idx++}`); params.push(dtInicFerDe); }
+  if (dtInicFerAte) { conditions.push(`fe.data_ferias <= $${idx++}`); params.push(dtInicFerAte); }
+
+  // Período Inic Progr. — EXISTS em periodos_ferias.data_inicial
+  if (dtInicProgrDe || dtInicProgrAte) {
+    let sub = `EXISTS (SELECT 1 FROM periodos_ferias pf WHERE pf.ferias_equipe_id = fe.id`;
+    if (dtInicProgrDe)  { sub += ` AND pf.data_inicial >= $${idx++}`; params.push(dtInicProgrDe); }
+    if (dtInicProgrAte) { sub += ` AND pf.data_inicial <= $${idx++}`; params.push(dtInicProgrAte); }
+    conditions.push(sub + ")");
+  }
 
   const where = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
 
@@ -34,11 +64,12 @@ router.get("/relatorio", auth, canAccess("s31"), async (req, res) => {
               c.name                                                           AS "empresaNome",
               t.name                                                           AS "equipeNome",
               fn.nome                                                          AS "funcionarioNome",
+              TO_CHAR(fe.data_limite,'DD/MM/YYYY')                            AS "dataLimite",
               TO_CHAR(fe.data_ferias,'DD/MM/YYYY')                            AS "dtInicFer",
               TO_CHAR(fe.dt_final_fer,'DD/MM/YYYY')                           AS "dtFinalFer",
               fe.chamado,
-              fe.dias_vendidos                                                 AS "diasVendidos",
               fe.total_dias                                                    AS "totalDias",
+              fe.dias_vendidos                                                 AS "diasVendidos",
               (fe.total_dias - fe.dias_vendidos)                              AS "diasGozo",
               COALESCE(p.soma_qtde, 0)                                        AS "somaQtde",
               ((fe.total_dias - fe.dias_vendidos) - COALESCE(p.soma_qtde,0)) AS "saldoDias"
@@ -63,7 +94,8 @@ router.get("/relatorio", auth, canAccess("s31"), async (req, res) => {
       `SELECT ferias_equipe_id                   AS "feriasEquipeId",
               TO_CHAR(data_inicial,'DD/MM/YYYY') AS "dataInicial",
               TO_CHAR(data_final,'DD/MM/YYYY')   AS "dataFinal",
-              qtde_dias                          AS "qtdeDias"
+              qtde_dias                          AS "qtdeDias",
+              status
          FROM periodos_ferias
         WHERE ferias_equipe_id = ANY($1)
         ORDER BY data_inicial`,
@@ -77,6 +109,7 @@ router.get("/relatorio", auth, canAccess("s31"), async (req, res) => {
         dataInicial: p.dataInicial,
         dataFinal:   p.dataFinal,
         qtdeDias:    p.qtdeDias,
+        status:      p.status,
       });
     }
 
