@@ -3,21 +3,82 @@ const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 
+// Detecta ciclo hierárquico: verifica se definir newParentId em teamId criaria ciclo
+async function wouldCreateCycle(teamId, newParentId) {
+  if (!newParentId) return false;
+  if (newParentId === teamId) return true;
+  const visited = new Set();
+  let cur = newParentId;
+  while (cur) {
+    if (visited.has(cur)) return false; // ciclo já existente nos dados — não é causado por nós
+    visited.add(cur);
+    const r = await pool.query("SELECT parent_id FROM teams WHERE id=$1", [cur]);
+    cur = r.rows[0]?.parent_id || null;
+    if (cur === teamId) return true;
+  }
+  return false;
+}
+
 // GET /teams
 router.get("/", auth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT t.id, t.name, t.active,
+              t.parent_id AS "parentId",
+              p.name      AS "parentName",
               COUNT(ei.id)::int AS "membros"
          FROM teams t
+         LEFT JOIN teams        p  ON p.id  = t.parent_id
          LEFT JOIN equipe_itens ei ON ei.team_id = t.id
-        GROUP BY t.id
+        GROUP BY t.id, p.name
         ORDER BY t.name`
     );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar equipes." });
+  }
+});
+
+// GET /teams/relatorio-composicao — árvore de equipes com funcionários para relatório
+router.get("/relatorio-composicao", auth, async (req, res) => {
+  try {
+    const [teamsRes, itensRes] = await Promise.all([
+      pool.query(
+        `SELECT t.id, t.name, t.active, t.parent_id AS "parentId"
+           FROM teams t
+          ORDER BY t.name`
+      ),
+      pool.query(
+        `SELECT ei.team_id AS "teamId",
+                fn.nome           AS "funcionarioNome",
+                fn.cargo,
+                fn.centro_custo   AS "centroCusto"
+           FROM equipe_itens ei
+           JOIN funcionarios fn ON fn.id = ei.funcionario_id
+          ORDER BY fn.nome`
+      )
+    ]);
+
+    const itensByTeam = {};
+    for (const row of itensRes.rows) {
+      if (!itensByTeam[row.teamId]) itensByTeam[row.teamId] = [];
+      itensByTeam[row.teamId].push({
+        funcionarioNome: row.funcionarioNome,
+        cargo: row.cargo,
+        centroCusto: row.centroCusto,
+      });
+    }
+
+    const teams = teamsRes.rows.map(t => ({
+      ...t,
+      membros: itensByTeam[t.id] || [],
+    }));
+
+    res.json(teams);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao gerar relatório de composição." });
   }
 });
 
@@ -41,12 +102,12 @@ router.get("/:id/users", auth, async (req, res) => {
 
 // POST /teams
 router.post("/", auth, async (req, res) => {
-  const { name, active = true } = req.body;
+  const { name, active = true, parentId } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   try {
     const result = await pool.query(
-      "INSERT INTO teams (name, active) VALUES ($1, $2) RETURNING *",
-      [name.trim(), active]
+      "INSERT INTO teams (name, active, parent_id) VALUES ($1,$2,$3) RETURNING id, name, active, parent_id AS \"parentId\"",
+      [name.trim(), active, parentId || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -57,12 +118,17 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /teams/:id
 router.put("/:id", auth, async (req, res) => {
-  const { name, active } = req.body;
+  const { name, active, parentId } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+  const pid = parentId || null;
+  if (pid === req.params.id)
+    return res.status(400).json({ error: "Uma equipe não pode ser subordinada a ela mesma." });
+  if (pid && await wouldCreateCycle(req.params.id, pid))
+    return res.status(400).json({ error: "Esta subordinação criaria um ciclo hierárquico." });
   try {
     const result = await pool.query(
-      "UPDATE teams SET name=$1, active=$2 WHERE id=$3 RETURNING *",
-      [name.trim(), active, req.params.id]
+      "UPDATE teams SET name=$1, active=$2, parent_id=$3 WHERE id=$4 RETURNING id, name, active, parent_id AS \"parentId\"",
+      [name.trim(), active, pid, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Equipe não encontrada." });
     res.json(result.rows[0]);

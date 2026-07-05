@@ -368,6 +368,8 @@ migrate("ALTER TABLE ferias_equipe ADD COLUMN IF NOT EXISTS chamado VARCHAR(200)
 migrate("INSERT INTO screens (id,name,module) VALUES ('s30','Férias','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s31','Relatório de Férias','Relatórios') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s31\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's31')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s32','Composição de Equipe','Relatórios') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s32\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's32')");
 
 // Itens de Equipe
 migrate(`CREATE TABLE IF NOT EXISTS equipe_itens (
@@ -403,6 +405,7 @@ migrate(`DO $$ BEGIN
   END IF;
 END $$`);
 migrate("ALTER TABLE escalas DROP COLUMN IF EXISTS team_id");
+migrate("ALTER TABLE teams ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES teams(id) ON DELETE SET NULL");
 // Um funcionário só pode estar em uma equipe
 migrate(`DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'equipe_itens_funcionario_unique') THEN
