@@ -164,6 +164,12 @@ router.put("/:id", auth, canAccess("s30","edit"), async (req, res) => {
 
 router.delete("/:id", auth, canAccess("s30","edit"), async (req, res) => {
   try {
+    const check = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM ferias_equipe WHERE ferias_id=$1",
+      [req.params.id]
+    );
+    if (check.rows[0].cnt > 0)
+      return res.status(400).json({ error: "Este registro possui funcionários vinculados. Exclua os funcionários antes de excluir o registro de férias." });
     await pool.query("DELETE FROM ferias WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir férias." }); }
@@ -234,6 +240,12 @@ router.put("/:id/equipe/:equipeId", auth, async (req, res) => {
 
 router.delete("/:id/equipe/:equipeId", auth, async (req, res) => {
   try {
+    const check = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM periodos_ferias WHERE ferias_equipe_id=$1",
+      [req.params.equipeId]
+    );
+    if (check.rows[0].cnt > 0)
+      return res.status(400).json({ error: "Este funcionário possui períodos de férias vinculados. Exclua os períodos antes de excluir o funcionário." });
     await pool.query("DELETE FROM ferias_equipe WHERE id=$1 AND ferias_id=$2",
       [req.params.equipeId, req.params.id]);
     res.json({ success: true });

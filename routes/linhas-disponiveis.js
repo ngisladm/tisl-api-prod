@@ -150,6 +150,14 @@ router.post("/:id/reverter-baixa", auth, async (req, res) => {
 // DELETE /linhas-disponiveis/:id
 router.delete("/:id", auth, canAccess("s19","edit"), async (req, res) => {
   try {
+    const check = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM historico_movimentacoes_ativos WHERE linha_id = $1
+       ) AS in_historico`,
+      [req.params.id]
+    );
+    if (check.rows[0].in_historico)
+      return res.status(400).json({ error: "Esta linha possui registros no Histórico de Movimentações e não pode ser excluída." });
     await pool.query("DELETE FROM linhas_disponiveis WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir linha disponível." }); }

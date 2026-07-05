@@ -328,6 +328,8 @@ migrate(`CREATE TABLE IF NOT EXISTS historico_movimentacoes_ativos (
   created_at TIMESTAMPTZ DEFAULT NOW()
 )`);
 migrate("ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS funcionario_destino_nome VARCHAR(200)");
+migrate("ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS ativo_id UUID");
+migrate("ALTER TABLE historico_movimentacoes_ativos ADD COLUMN IF NOT EXISTS linha_id UUID");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s29','Histórico de Movimentações de Ativos','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s29\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's29')");
 

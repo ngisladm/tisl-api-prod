@@ -9,7 +9,8 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
   try {
     const [itemRes, caRes] = await Promise.all([
       pool.query(`
-        SELECT i.marca, i.modelo, i.imei_slot1, i.imei_slot2, i.numero_serie,
+        SELECT i.ativo_id, i.linha_id,
+               i.marca, i.modelo, i.imei_slot1, i.imei_slot2, i.numero_serie,
                i.sistema_operacional, i.versao, i.processador, i.memoria, i.hd,
                i.patrimonio, i.numero_documento, i.valor,
                i.data_aquisicao,
@@ -38,7 +39,8 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
        it.iccid, it.acesso, it.estrutura, it.tipo_pacote,
        it.sistema_operacional, it.versao, it.processador,
        it.memoria, it.hd, it.patrimonio, it.numero_documento,
-       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo];
+       it.valor, it.data_aquisicao, it.condicao, it.acessorios, it.status_ativo,
+       it.ativo_id || null, it.linha_id || null];
     try {
       await pool.query(`
         INSERT INTO historico_movimentacoes_ativos
@@ -46,12 +48,13 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
            company_name, tipo_ativo_name, ativo_nome, marca, modelo, imei_slot1, imei_slot2,
            numero_serie, numero_linha, operadora_name, iccid, acesso, estrutura, tipo_pacote,
            sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
-           valor, data_aquisicao, condicao, acessorios, status_ativo, funcionario_destino_nome)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+           valor, data_aquisicao, condicao, acessorios, status_ativo, ativo_id, linha_id,
+           funcionario_destino_nome)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`,
         [...baseVals, funcionarioDestinoNome || null]);
     } catch (colErr) {
       if (colErr.code === '42703') {
-        // Coluna funcionario_destino_nome ainda não existe (migração pendente) — insere sem ela
+        // Colunas novas ainda não existem (migração pendente) — insere sem elas
         await pool.query(`
           INSERT INTO historico_movimentacoes_ativos
             (item_id, funcionario_nome, funcionario_cpf, tipo_movimentacao, usuario_nome,
@@ -60,7 +63,7 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
              sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento,
              valor, data_aquisicao, condicao, acessorios, status_ativo)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
-          baseVals);
+          baseVals.slice(0, 31));
       } else {
         throw colErr;
       }
@@ -122,7 +125,12 @@ router.put("/:id", auth, canAccess("s21","edit"), async (req, res) => {
 
 router.delete("/:id", auth, canAccess("s21","edit"), async (req, res) => {
   try {
-    await pool.query("DELETE FROM itens_controle_ativos WHERE controle_ativo_id=$1", [req.params.id]);
+    const check = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM itens_controle_ativos WHERE controle_ativo_id=$1",
+      [req.params.id]
+    );
+    if (check.rows[0].cnt > 0)
+      return res.status(400).json({ error: "Este registro possui itens vinculados. Exclua os itens antes de excluir o registro." });
     await pool.query("DELETE FROM controle_ativos WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir registro." }); }
@@ -302,15 +310,25 @@ router.put("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res)
 
 router.delete("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res) => {
   try {
-    // V11: libera ativo e linha antes de excluir
-    const old = await pool.query("SELECT ativo_id, linha_id FROM itens_controle_ativos WHERE id=$1", [req.params.itemId]);
-    const oldAtivoId = old.rows[0]?.ativo_id;
-    const oldLinhaId = old.rows[0]?.linha_id;
+    const old = await pool.query(
+      `SELECT ica.ativo_id, ica.linha_id, ta.name AS tipo_ativo_name
+         FROM itens_controle_ativos ica
+         LEFT JOIN tipo_ativos ta ON ta.id = ica.tipo_ativo_id
+        WHERE ica.id=$1`,
+      [req.params.itemId]
+    );
+    const row = old.rows[0];
+    const oldAtivoId = row?.ativo_id;
+    const oldLinhaId = row?.linha_id;
+    const isTelefonia = (row?.tipo_ativo_name || "").toLowerCase() === "telefonia";
     await logHistorico(req.params.id, req.params.itemId, "Exclusão", req.user?.name || "Sistema");
     await pool.query("DELETE FROM itens_controle_ativos WHERE id=$1 AND controle_ativo_id=$2",
       [req.params.itemId, req.params.id]);
-    if (oldAtivoId) await pool.query("UPDATE ativos SET status='Em Estoque' WHERE id=$1", [oldAtivoId]).catch(()=>{});
-    if (oldLinhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em estoque' WHERE id=$1", [oldLinhaId]).catch(()=>{});
+    if (isTelefonia) {
+      if (oldLinhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em estoque' WHERE id=$1", [oldLinhaId]).catch(()=>{});
+    } else {
+      if (oldAtivoId) await pool.query("UPDATE ativos SET status='Em Estoque' WHERE id=$1", [oldAtivoId]).catch(()=>{});
+    }
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir item." }); }
 });

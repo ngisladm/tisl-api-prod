@@ -93,6 +93,14 @@ router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
 
 router.delete("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   try {
+    const check = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM historico_movimentacoes_ativos WHERE ativo_id = $1
+       ) AS in_historico`,
+      [req.params.id]
+    );
+    if (check.rows[0].in_historico)
+      return res.status(400).json({ error: "Este ativo possui registros no Histórico de Movimentações e não pode ser excluído." });
     await pool.query("DELETE FROM ativos WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir ativo." }); }

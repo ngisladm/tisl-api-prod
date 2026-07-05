@@ -75,6 +75,12 @@ router.put("/:id", auth, async (req, res) => {
 // DELETE /teams/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
+    const check = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM equipe_itens WHERE team_id=$1",
+      [req.params.id]
+    );
+    if (check.rows[0].cnt > 0)
+      return res.status(400).json({ error: "Esta equipe possui funcionários vinculados. Exclua os funcionários da equipe antes de excluir a equipe." });
     await pool.query("DELETE FROM teams WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
