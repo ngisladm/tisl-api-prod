@@ -124,10 +124,13 @@ router.get("/", auth, canAccess("s30"), async (req, res) => {
     const r = await pool.query(
       `SELECT f.id, f.ano,
               f.company_id AS "companyId", c.name AS "companyName",
-              f.team_id    AS "teamId",    t.name AS "teamName"
+              f.team_id    AS "teamId",    t.name AS "teamName",
+              COUNT(fe.id)::int AS "totalFuncionarios"
          FROM ferias f
-         LEFT JOIN companies c ON c.id = f.company_id
-         LEFT JOIN teams     t ON t.id = f.team_id
+         LEFT JOIN companies    c  ON c.id  = f.company_id
+         LEFT JOIN teams        t  ON t.id  = f.team_id
+         LEFT JOIN ferias_equipe fe ON fe.ferias_id = f.id
+        GROUP BY f.id, c.name, t.name
         ORDER BY f.ano DESC, c.name, t.name`
     );
     res.json(r.rows);

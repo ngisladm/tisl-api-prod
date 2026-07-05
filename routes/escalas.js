@@ -26,18 +26,44 @@ function turnoHoras(turno, isWeekendOrFeriado) {
   }
 }
 
+// Helper: fetch full escala with aggregated teams
+async function fetchEscala(id) {
+  const r = await pool.query(
+    `SELECT e.id, e.company_id AS "companyId",
+            TO_CHAR(e.data_inicio,'DD/MM/YYYY') AS "dataInicio",
+            TO_CHAR(e.data_fim,   'DD/MM/YYYY') AS "dataFim",
+            c.name AS "companyName",
+            COALESCE(ARRAY_AGG(t.id   ORDER BY t.name) FILTER (WHERE t.id   IS NOT NULL), '{}') AS "teamIds",
+            COALESCE(ARRAY_AGG(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS "teamNames",
+            COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr"
+       FROM escalas e
+       LEFT JOIN companies     c  ON c.id  = e.company_id
+       LEFT JOIN escala_equipes ee ON ee.escala_id = e.id
+       LEFT JOIN teams          t  ON t.id  = ee.team_id
+      WHERE e.id = $1
+      GROUP BY e.id, c.name`,
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
 // GET /escalas
 router.get("/", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT e.id, e.company_id AS "companyId", e.team_id AS "teamId",
+      `SELECT e.id, e.company_id AS "companyId",
               TO_CHAR(e.data_inicio,'DD/MM/YYYY') AS "dataInicio",
               TO_CHAR(e.data_fim,   'DD/MM/YYYY') AS "dataFim",
-              c.name AS "companyName", t.name AS "teamName"
+              c.name AS "companyName",
+              COALESCE(ARRAY_AGG(t.id   ORDER BY t.name) FILTER (WHERE t.id   IS NOT NULL), '{}') AS "teamIds",
+              COALESCE(ARRAY_AGG(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS "teamNames",
+              COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr"
          FROM escalas e
-         LEFT JOIN companies c ON c.id = e.company_id
-         LEFT JOIN teams     t ON t.id = e.team_id
-        ORDER BY e.data_inicio DESC, c.name, t.name`
+         LEFT JOIN companies      c  ON c.id  = e.company_id
+         LEFT JOIN escala_equipes ee ON ee.escala_id = e.id
+         LEFT JOIN teams          t  ON t.id  = ee.team_id
+        GROUP BY e.id, c.name
+        ORDER BY e.data_inicio DESC, c.name`
     );
     res.json(result.rows);
   } catch (err) {
@@ -48,11 +74,10 @@ router.get("/", auth, async (req, res) => {
 
 // POST /escalas
 router.post("/", auth, async (req, res) => {
-  const { companyId, teamId, dataInicio, dataFim } = req.body;
-  if (!companyId || !teamId || !dataInicio || !dataFim)
+  const { companyId, teamIds, dataInicio, dataFim } = req.body;
+  if (!companyId || !Array.isArray(teamIds) || teamIds.length === 0 || !dataInicio || !dataFim)
     return res.status(400).json({ error: "Todos os campos são obrigatórios." });
 
-  // Parse dd/mm/yyyy -> yyyy-mm-dd
   const parseDate = (str) => {
     const parts = str.split("/");
     if (parts.length !== 3) throw new Error(`Data inválida: ${str}. Use o formato dd/mm/aaaa.`);
@@ -69,21 +94,21 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ error: "A data inicial não pode ser maior que a data final." });
 
     const result = await pool.query(
-      `INSERT INTO escalas (company_id, team_id, data_inicio, data_fim)
-       VALUES ($1,$2,$3,$4)
-       RETURNING id, company_id AS "companyId", team_id AS "teamId",
-                 TO_CHAR(data_inicio,'DD/MM/YYYY') AS "dataInicio",
-                 TO_CHAR(data_fim,   'DD/MM/YYYY') AS "dataFim"`,
-      [companyId, teamId, di, df]
+      `INSERT INTO escalas (company_id, data_inicio, data_fim)
+       VALUES ($1,$2,$3)
+       RETURNING id`,
+      [companyId, di, df]
     );
-    const row = result.rows[0];
-    const company = await pool.query("SELECT name FROM companies WHERE id=$1",[companyId]);
-    const team    = await pool.query("SELECT name FROM teams WHERE id=$1",    [teamId]);
-    row.companyName = company.rows[0]?.name;
-    row.teamName    = team.rows[0]?.name;
+    const escalaId = result.rows[0].id;
+    for (const teamId of teamIds) {
+      await pool.query(
+        `INSERT INTO escala_equipes (escala_id, team_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [escalaId, teamId]
+      );
+    }
+    const row = await fetchEscala(escalaId);
     res.status(201).json(row);
   } catch (err) {
-    if (err.code === "23505") return res.status(400).json({ error: "Já existe uma escala para esta equipe neste período." });
     console.error("ERRO POST /escalas:", err.message, err.stack);
     res.status(500).json({ error: err.message || "Erro ao criar escala." });
   }
@@ -91,27 +116,28 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /escalas/:id
 router.put("/:id", auth, async (req, res) => {
-  const { companyId, teamId, dataInicio, dataFim } = req.body;
-  if (!companyId || !teamId || !dataInicio || !dataFim)
+  const { companyId, teamIds, dataInicio, dataFim } = req.body;
+  if (!companyId || !Array.isArray(teamIds) || teamIds.length === 0 || !dataInicio || !dataFim)
     return res.status(400).json({ error: "Todos os campos são obrigatórios." });
 
   const parseDate = (str) => { const [d,m,y] = str.split("/"); return `${y}-${m}-${d}`; };
 
   try {
-    const result = await pool.query(
-      `UPDATE escalas SET company_id=$1, team_id=$2, data_inicio=$3, data_fim=$4
-        WHERE id=$5
-       RETURNING id, company_id AS "companyId", team_id AS "teamId",
-                 TO_CHAR(data_inicio,'DD/MM/YYYY') AS "dataInicio",
-                 TO_CHAR(data_fim,   'DD/MM/YYYY') AS "dataFim"`,
-      [companyId, teamId, parseDate(dataInicio), parseDate(dataFim), req.params.id]
+    const r = await pool.query(
+      `UPDATE escalas SET company_id=$1, data_inicio=$2, data_fim=$3
+        WHERE id=$4
+       RETURNING id`,
+      [companyId, parseDate(dataInicio), parseDate(dataFim), req.params.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: "Escala não encontrada." });
-    const row = result.rows[0];
-    const company = await pool.query("SELECT name FROM companies WHERE id=$1",[companyId]);
-    const team    = await pool.query("SELECT name FROM teams WHERE id=$1",    [teamId]);
-    row.companyName = company.rows[0]?.name;
-    row.teamName    = team.rows[0]?.name;
+    if (!r.rows[0]) return res.status(404).json({ error: "Escala não encontrada." });
+    await pool.query("DELETE FROM escala_equipes WHERE escala_id=$1", [req.params.id]);
+    for (const teamId of teamIds) {
+      await pool.query(
+        `INSERT INTO escala_equipes (escala_id, team_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [req.params.id, teamId]
+      );
+    }
+    const row = await fetchEscala(req.params.id);
     res.json(row);
   } catch (err) {
     console.error(err);
@@ -128,6 +154,26 @@ router.delete("/:id", auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao excluir escala." });
+  }
+});
+
+// GET /escalas/:id/usuarios — funcionários ativos de todas as equipes da escala
+router.get("/:id/usuarios", auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.company_id AS "companyId", u.funcionario_id AS "funcionarioId"
+         FROM users u
+         JOIN equipe_itens    ei ON ei.funcionario_id = u.funcionario_id
+         JOIN escala_equipes  ee ON ee.team_id = ei.team_id AND ee.escala_id = $1
+        WHERE u.active = TRUE AND u.funcionario_id IS NOT NULL
+        GROUP BY u.id
+        ORDER BY u.name`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar usuários da escala." });
   }
 });
 
@@ -224,18 +270,9 @@ router.put("/:id/turnos/:turnoId", auth, async (req, res) => {
 // GET /escalas/:id/relatorio-calendario — calendário da escala com nomes dos usuários
 router.get("/:id/relatorio-calendario", auth, async (req, res) => {
   try {
-    const escalaResult = await pool.query(
-      `SELECT e.id, e.company_id AS "companyId", e.team_id AS "teamId",
-              TO_CHAR(e.data_inicio,'DD/MM/YYYY') AS "dataInicio",
-              TO_CHAR(e.data_fim,   'DD/MM/YYYY') AS "dataFim",
-              c.name AS "companyName", t.name AS "teamName"
-         FROM escalas e
-         LEFT JOIN companies c ON c.id = e.company_id
-         LEFT JOIN teams     t ON t.id = e.team_id
-        WHERE e.id=$1`,
-      [req.params.id]
-    );
-    if (!escalaResult.rows[0]) return res.status(404).json({ error: "Escala não encontrada." });
+    const escalaRow = await fetchEscala(req.params.id);
+    if (!escalaRow) return res.status(404).json({ error: "Escala não encontrada." });
+    const escalaResult = { rows: [escalaRow] };
 
     const turnosResult = await pool.query(
       `SELECT et.id,

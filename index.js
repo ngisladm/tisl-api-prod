@@ -385,6 +385,22 @@ migrate("ALTER TABLE km_records ADD COLUMN IF NOT EXISTS funcionario_id UUID REF
 migrate("ALTER TABLE km_records DROP COLUMN IF EXISTS user_id");
 migrate("ALTER TABLE escala_turnos ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)");
 migrate("ALTER TABLE escala_turnos DROP COLUMN IF EXISTS user_id");
+// Tabela de equipes vinculadas a uma escala (many-to-many)
+migrate(`CREATE TABLE IF NOT EXISTS escala_equipes (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  escala_id UUID NOT NULL REFERENCES escalas(id) ON DELETE CASCADE,
+  team_id   UUID NOT NULL REFERENCES teams(id),
+  UNIQUE(escala_id, team_id)
+)`);
+// Migrar team_id existente para escala_equipes (só se a coluna ainda existir)
+migrate(`DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='escalas' AND column_name='team_id') THEN
+    INSERT INTO escala_equipes (escala_id, team_id)
+    SELECT id, team_id FROM escalas WHERE team_id IS NOT NULL
+    ON CONFLICT DO NOTHING;
+  END IF;
+END $$`);
+migrate("ALTER TABLE escalas DROP COLUMN IF EXISTS team_id");
 // Um funcionário só pode estar em uma equipe
 migrate(`DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'equipe_itens_funcionario_unique') THEN

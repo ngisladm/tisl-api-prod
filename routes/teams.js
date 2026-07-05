@@ -6,7 +6,14 @@ const auth    = require("../middleware/auth");
 // GET /teams
 router.get("/", auth, async (req, res) => {
   try {
-    const result = await pool.query("SELECT id, name, active FROM teams ORDER BY name");
+    const result = await pool.query(
+      `SELECT t.id, t.name, t.active,
+              COUNT(ei.id)::int AS "membros"
+         FROM teams t
+         LEFT JOIN equipe_itens ei ON ei.team_id = t.id
+        GROUP BY t.id
+        ORDER BY t.name`
+    );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
