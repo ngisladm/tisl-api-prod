@@ -33,8 +33,9 @@ function parseNmapXml(xml) {
 
 function runNmap(ipRange) {
   return new Promise(resolve => {
-    const cmd = `nmap -sV -O --osscan-guess -T4 --host-timeout 30s -oX - ${ipRange}`;
-    exec(cmd, { timeout: 300000, maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
+    // -sn: ping scan (sem port scan, sem root), -R: resolve DNS reverso, --send-ip: evita ARP flood
+    const cmd = `nmap -sn -T4 --host-timeout 15s -oX - ${ipRange}`;
+    exec(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout) => {
       if (err && !stdout) { console.error(`nmap [${ipRange}]:`, err.message); return resolve([]); }
       resolve(parseNmapXml(stdout || ""));
     });
