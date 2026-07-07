@@ -11,12 +11,15 @@ const qs       = require("querystring");
 
 function parseNmapXml(xml) {
   const hosts = [];
-  const blocks = xml.match(/<host[\s\S]*?<\/host>/g) || [];
+  const seen = new Set();
+  // aceita tanto <host> quanto <hosthint>
+  const blocks = xml.match(/<host(?:hint)?[\s\S]*?<\/host(?:hint)?>/g) || [];
   for (const b of blocks) {
-    const state = (b.match(/<state state="([^"]+)"/) || [])[1];
-    if (state !== "up") continue;
-    const ip  = (b.match(/<address addr="([^"]+)" addrtype="ipv4"/) || [])[1];
-    if (!ip) continue;
+    const state = (b.match(/<status state="([^"]+)"/) || [])[1];
+    if (state && state !== "up") continue;
+    const ip = (b.match(/<address addr="([^"]+)" addrtype="ipv4"/) || [])[1];
+    if (!ip || seen.has(ip)) continue;
+    seen.add(ip);
     const macM  = b.match(/<address addr="([^"]+)" addrtype="mac"(?:\s+vendor="([^"]*)")?/);
     const hostM = b.match(/<hostname name="([^"]+)"/);
     const osM   = b.match(/<osmatch name="([^"]+)"/);
@@ -38,9 +41,11 @@ function runNmap(ipRange) {
     console.log(`[nmap] iniciando: ${cmd}`);
     exec(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout) => {
       if (err) console.error(`[nmap] erro [${ipRange}]:`, err.message);
-      const xmlLen = (stdout || "").length;
-      const hosts = parseNmapXml(stdout || "");
+      const xml = stdout || "";
+      const xmlLen = xml.length;
+      const hosts = parseNmapXml(xml);
       console.log(`[nmap] ${ipRange}: xml=${xmlLen} bytes, hosts=${hosts.length}`);
+      console.log(`[nmap] amostra XML:`, xml.substring(200, 800));
       resolve(hosts);
     });
   });
