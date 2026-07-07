@@ -16,6 +16,8 @@ const vehicleTypesRoutes = require("./routes/vehicle-types");
 const kmValuesRoutes     = require("./routes/km-values");
 const kmRecordsRoutes    = require("./routes/km-records");
 const suppliersRoutes      = require("./routes/suppliers");
+const inventoryConfigRoutes = require("./routes/inventory-config");
+const inventoryRoutes       = require("./routes/inventory");
 const contractsRoutes      = require("./routes/contracts");
 const operadorasRoutes        = require("./routes/operadoras");
 const linhasFaturadasRoutes   = require("./routes/linhas-faturadas");
@@ -373,6 +375,91 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s31','Relatório de Féri
 migrate("UPDATE profiles SET permissions = permissions || '{\"s31\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's31')");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s32','Composição de Equipe','Relatórios') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s32\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's32')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s33','Configuração de Inventário','Cadastros') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s33\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's33')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s34','Inventário de Rede','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s34\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's34')");
+migrate(`CREATE TABLE IF NOT EXISTS inventory_networks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  ip_range VARCHAR(50) NOT NULL,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_domain_config (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  domain VARCHAR(100),
+  username VARCHAR(100),
+  password_enc TEXT,
+  updated_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_tenants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  tenant_id VARCHAR(100) NOT NULL,
+  client_id VARCHAR(100) NOT NULL,
+  client_secret_enc TEXT NOT NULL,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_collections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE NOT NULL,
+  tipo VARCHAR(50) NOT NULL,
+  status VARCHAR(20) DEFAULT 'Pendente',
+  error_msg TEXT,
+  started_at TIMESTAMP,
+  finished_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID NOT NULL REFERENCES inventory_collections(id) ON DELETE CASCADE,
+  ip VARCHAR(50),
+  mac VARCHAR(50),
+  hostname VARCHAR(200),
+  os VARCHAR(200),
+  manufacturer VARCHAR(200),
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_hardware (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES inventory_devices(id) ON DELETE CASCADE,
+  cpu VARCHAR(200),
+  ram_gb NUMERIC,
+  disk_gb NUMERIC,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_software (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES inventory_devices(id) ON DELETE CASCADE,
+  name VARCHAR(300),
+  version VARCHAR(100),
+  manufacturer VARCHAR(200),
+  install_date VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_m365_licenses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID NOT NULL REFERENCES inventory_collections(id) ON DELETE CASCADE,
+  tenant_id UUID REFERENCES inventory_tenants(id) ON DELETE SET NULL,
+  tenant_name VARCHAR(100),
+  sku_name VARCHAR(200),
+  total_units INT,
+  used_units INT,
+  available_units INT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS inventory_m365_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID NOT NULL REFERENCES inventory_collections(id) ON DELETE CASCADE,
+  tenant_id UUID REFERENCES inventory_tenants(id) ON DELETE SET NULL,
+  tenant_name VARCHAR(100),
+  display_name VARCHAR(200),
+  email VARCHAR(200),
+  licenses TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
 
 // Itens de Equipe
 migrate(`CREATE TABLE IF NOT EXISTS equipe_itens (
@@ -451,6 +538,8 @@ app.use("/historico-movimentacoes", historicoMovimentacoesRoutes);
 app.use("/ferias",                 feriasRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
+app.use("/inventory-config",  inventoryConfigRoutes);
+app.use("/inventory",         inventoryRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
