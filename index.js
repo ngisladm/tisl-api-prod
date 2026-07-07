@@ -227,6 +227,9 @@ pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bairro VARCHAR(100)")
 pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cep VARCHAR(10)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS cidade VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS estado VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS tipo VARCHAR(2)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS pais VARCHAR(100)").catch(err => logger.error("[migration]", err.message));
+pool.query("CREATE UNIQUE INDEX IF NOT EXISTS suppliers_cnpj_unique ON suppliers (cnpj) WHERE cnpj IS NOT NULL AND cnpj <> ''").catch(err => logger.error("[migration]", err.message));
 // Operadoras
 pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE operadoras ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(20)").catch(err => logger.error("[migration]", err.message));
