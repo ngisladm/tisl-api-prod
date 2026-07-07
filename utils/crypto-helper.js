@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 
 const KEY = crypto.scryptSync(
-  process.env.EMAIL_SECRET || "inventory-default-key",
+  process.env.INVENTORY_ENCRYPT_KEY || process.env.EMAIL_SECRET || "inventory-default-key",
   "inventory-salt-v1",
   32
 );
