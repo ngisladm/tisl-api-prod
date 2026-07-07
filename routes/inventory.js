@@ -35,9 +35,13 @@ function runNmap(ipRange) {
   return new Promise(resolve => {
     // -sn: ping scan (sem port scan, sem root), -R: resolve DNS reverso, --send-ip: evita ARP flood
     const cmd = `nmap -sn -T4 --host-timeout 15s -oX - ${ipRange}`;
+    console.log(`[nmap] iniciando: ${cmd}`);
     exec(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout) => {
-      if (err && !stdout) { console.error(`nmap [${ipRange}]:`, err.message); return resolve([]); }
-      resolve(parseNmapXml(stdout || ""));
+      if (err) console.error(`[nmap] erro [${ipRange}]:`, err.message);
+      const xmlLen = (stdout || "").length;
+      const hosts = parseNmapXml(stdout || "");
+      console.log(`[nmap] ${ipRange}: xml=${xmlLen} bytes, hosts=${hosts.length}`);
+      resolve(hosts);
     });
   });
 }
