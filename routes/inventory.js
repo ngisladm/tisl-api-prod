@@ -45,6 +45,23 @@ function runNmap(ipRange) {
   });
 }
 
+// ── Helpers: WinRM via Python ──────────────────────────────────
+
+function runWinRM(ip, domain, username, password) {
+  return new Promise(resolve => {
+    const script = "/app/scripts/winrm_collect.py";
+    const args   = [ip, domain || "", username, password].map(a => `'${a.replace(/'/g,"'\\''")}'`).join(" ");
+    const cmd    = `python3 ${script} ${args}`;
+    exec(cmd, { timeout: 60000 }, (err, stdout) => {
+      try {
+        const r = JSON.parse((stdout || "").trim());
+        if (r.error) { console.error(`WinRM [${ip}]:`, r.error); return resolve(null); }
+        resolve(r);
+      } catch { resolve(null); }
+    });
+  });
+}
+
 // ── Helpers: WMI (wmic via Linux wmi-client) ───────────────────
 
 function parseWmic(stdout) {
@@ -84,7 +101,7 @@ function graphToken(tenantId, clientId, clientSecret) {
       headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
     }, res => {
       let d = ""; res.on("data", c => d += c);
-      res.on("end", () => { try { const j=JSON.parse(d); if(!j.access_token) console.error("[M365] resposta Azure:",JSON.stringify(j)); resolve(j.access_token||null); } catch { reject(new Error("Token inválido")); } });
+      res.on("end", () => { try { resolve(JSON.parse(d).access_token || null); } catch { reject(new Error("Token inválido")); } });
     });
     req.on("error", reject); req.write(body); req.end();
   });
@@ -104,19 +121,16 @@ function graphGet(token, path) {
 }
 
 async function collectM365(tenant, collectionId) {
-  console.log(`[M365] coletando tenant: ${tenant.name} (${tenant.tenant_id})`);
   const secret = decrypt(tenant.client_secret_enc);
-  if (!secret) { console.error(`[M365] secret não descriptografado para ${tenant.name}`); return; }
+  if (!secret) return;
   let token;
   try { token = await graphToken(tenant.tenant_id, tenant.client_id, secret); }
-  catch(e) { console.error(`[M365] erro ao obter token [${tenant.name}]:`, e.message); return; }
-  if (!token) { console.error(`[M365] token vazio para ${tenant.name}`); return; }
-  console.log(`[M365] token obtido para ${tenant.name}`);
+  catch(e) { console.error(`M365 token [${tenant.name}]:`, e.message); return; }
+  if (!token) { console.error(`M365 token vazio [${tenant.name}]`); return; }
 
   // Licenças
   const skusRes = await graphGet(token, "/subscribedSkus");
-  console.log(`[M365] licenças encontradas: ${(skusRes.value||[]).length} para ${tenant.name}`);
-  if (skusRes.error) console.error(`[M365] erro Graph:`, JSON.stringify(skusRes.error));
+  if (skusRes.error) console.error(`M365 Graph [${tenant.name}]:`, JSON.stringify(skusRes.error));
   for (const sku of (skusRes.value || [])) {
     await pool.query(
       `INSERT INTO inventory_m365_licenses
@@ -191,31 +205,28 @@ async function runScan(collectionId, tipo) {
 
       if (tipo === "Inventário de Software" && dom?.username) {
         const pwd = decrypt(dom.password_enc);
-
-        // Software
-        const swRows = await runWmic(host.ip, dom.domain, dom.username, pwd,
-          "SELECT Name,Version,Vendor,InstallDate FROM Win32_Product");
-        for (const sw of swRows) {
-          if (!sw.Name) continue;
+        const winrm = await runWinRM(host.ip, dom.domain, dom.username, pwd);
+        if (winrm) {
+          // Atualiza MAC e OS se coletados via WinRM
+          if (winrm.mac || winrm.os) {
+            await pool.query(
+              "UPDATE inventory_devices SET mac=COALESCE($2,mac), os=COALESCE($3,os) WHERE id=$1",
+              [deviceId, winrm.mac || null, winrm.os || null]
+            ).catch(() => {});
+          }
+          // Hardware
           await pool.query(
-            "INSERT INTO inventory_software (device_id,name,version,manufacturer,install_date) VALUES ($1,$2,$3,$4,$5)",
-            [deviceId, sw.Name, sw.Version, sw.Vendor, sw.InstallDate]
+            "INSERT INTO inventory_hardware (device_id,cpu,ram_gb,disk_gb) VALUES ($1,$2,$3,$4)",
+            [deviceId, winrm.cpu || null, winrm.ram_gb || null, winrm.disk_gb || null]
           ).catch(() => {});
+          // Software
+          for (const sw of (winrm.software || [])) {
+            await pool.query(
+              "INSERT INTO inventory_software (device_id,name,version,manufacturer,install_date) VALUES ($1,$2,$3,$4,$5)",
+              [deviceId, sw.name, sw.version, sw.manufacturer, sw.install_date]
+            ).catch(() => {});
+          }
         }
-
-        // Hardware
-        const [cpuR, memR, diskR] = await Promise.all([
-          runWmic(host.ip, dom.domain, dom.username, pwd, "SELECT Name FROM Win32_Processor"),
-          runWmic(host.ip, dom.domain, dom.username, pwd, "SELECT TotalPhysicalMemory FROM Win32_ComputerSystem"),
-          runWmic(host.ip, dom.domain, dom.username, pwd, "SELECT Size FROM Win32_DiskDrive"),
-        ]);
-        const cpu     = cpuR[0]?.Name || null;
-        const ramGb   = memR[0]?.TotalPhysicalMemory ? +(parseInt(memR[0].TotalPhysicalMemory) / 1073741824).toFixed(1) : null;
-        const diskGb  = diskR.reduce((s, d) => s + parseInt(d.Size || 0), 0);
-        await pool.query(
-          "INSERT INTO inventory_hardware (device_id,cpu,ram_gb,disk_gb) VALUES ($1,$2,$3,$4)",
-          [deviceId, cpu, ramGb, diskGb > 0 ? +(diskGb / 1073741824).toFixed(0) : null]
-        ).catch(() => {});
       }
     }
 
