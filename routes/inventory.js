@@ -84,7 +84,7 @@ function graphToken(tenantId, clientId, clientSecret) {
       headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
     }, res => {
       let d = ""; res.on("data", c => d += c);
-      res.on("end", () => { try { resolve(JSON.parse(d).access_token); } catch { reject(new Error("Token inválido")); } });
+      res.on("end", () => { try { const j=JSON.parse(d); if(!j.access_token) console.error("[M365] resposta Azure:",JSON.stringify(j)); resolve(j.access_token||null); } catch { reject(new Error("Token inválido")); } });
     });
     req.on("error", reject); req.write(body); req.end();
   });
