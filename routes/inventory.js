@@ -38,15 +38,9 @@ function runNmap(ipRange) {
   return new Promise(resolve => {
     // -sn: ping scan (sem port scan, sem root), -R: resolve DNS reverso, --send-ip: evita ARP flood
     const cmd = `nmap -sn -T4 --host-timeout 15s -oX - ${ipRange}`;
-    console.log(`[nmap] iniciando: ${cmd}`);
     exec(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout) => {
-      if (err) console.error(`[nmap] erro [${ipRange}]:`, err.message);
-      const xml = stdout || "";
-      const xmlLen = xml.length;
-      const hosts = parseNmapXml(xml);
-      console.log(`[nmap] ${ipRange}: xml=${xmlLen} bytes, hosts=${hosts.length}`);
-      console.log(`[nmap] amostra XML:`, xml.substring(200, 800));
-      resolve(hosts);
+      if (err && !stdout) { console.error(`nmap [${ipRange}]:`, err.message); return resolve([]); }
+      resolve(parseNmapXml(stdout || ""));
     });
   });
 }
@@ -110,11 +104,19 @@ function graphGet(token, path) {
 }
 
 async function collectM365(tenant, collectionId) {
+  console.log(`[M365] coletando tenant: ${tenant.name} (${tenant.tenant_id})`);
   const secret = decrypt(tenant.client_secret_enc);
-  const token  = await graphToken(tenant.tenant_id, tenant.client_id, secret);
+  if (!secret) { console.error(`[M365] secret não descriptografado para ${tenant.name}`); return; }
+  let token;
+  try { token = await graphToken(tenant.tenant_id, tenant.client_id, secret); }
+  catch(e) { console.error(`[M365] erro ao obter token [${tenant.name}]:`, e.message); return; }
+  if (!token) { console.error(`[M365] token vazio para ${tenant.name}`); return; }
+  console.log(`[M365] token obtido para ${tenant.name}`);
 
   // Licenças
   const skusRes = await graphGet(token, "/subscribedSkus");
+  console.log(`[M365] licenças encontradas: ${(skusRes.value||[]).length} para ${tenant.name}`);
+  if (skusRes.error) console.error(`[M365] erro Graph:`, JSON.stringify(skusRes.error));
   for (const sku of (skusRes.value || [])) {
     await pool.query(
       `INSERT INTO inventory_m365_licenses
