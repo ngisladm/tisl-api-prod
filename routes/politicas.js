@@ -30,12 +30,12 @@ router.get("/", auth, async (req, res) => {
     if (status)  { params.push(status);  conds.push(`p.status=$${params.length}`); }
     const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
     const r = await pool.query(
-      `SELECT p.id, p.empresa_id AS "empresaId", e.nome AS "empresaNome",
+      `SELECT p.id, p.empresa_id AS "empresaId", e.name AS "empresaNome",
               p.nome_politica AS "nomePolitica",
               TO_CHAR(p.data,'DD/MM/YYYY') AS data,
               p.status, p.observacao, p.created_at AS "createdAt"
          FROM politicas_ti p
-         JOIN empresas e ON e.id = p.empresa_id
+         JOIN companies e ON e.id = p.empresa_id
          ${where} ORDER BY p.data DESC`,
       params
     );

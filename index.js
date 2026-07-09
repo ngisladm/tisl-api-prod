@@ -385,7 +385,7 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s37','Políticas de TI','
 migrate("UPDATE profiles SET permissions = permissions || '{\"s37\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's37')");
 migrate(`CREATE TABLE IF NOT EXISTS folgas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID REFERENCES empresas(id),
+  empresa_id UUID REFERENCES companies(id),
   equipe_id UUID REFERENCES teams(id),
   funcionario_id UUID REFERENCES funcionarios(id),
   data VARCHAR(10) NOT NULL,
@@ -398,7 +398,7 @@ migrate(`CREATE TABLE IF NOT EXISTS folgas (
 )`);
 migrate(`CREATE TABLE IF NOT EXISTS politicas_ti (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID REFERENCES empresas(id),
+  empresa_id UUID REFERENCES companies(id),
   nome_politica VARCHAR(255) NOT NULL,
   data VARCHAR(10) NOT NULL,
   status VARCHAR(10) DEFAULT 'Ativo',

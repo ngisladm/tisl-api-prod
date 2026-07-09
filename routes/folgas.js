@@ -16,14 +16,14 @@ router.get("/", auth, async (req, res) => {
     const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
     const r = await pool.query(
       `SELECT f.id,
-              f.empresa_id AS "empresaId", e.nome AS "empresaNome",
+              f.empresa_id AS "empresaId", e.name AS "empresaNome",
               f.equipe_id  AS "equipeId",  eq.name AS "equipeNome",
               f.funcionario_id AS "funcionarioId", fn.nome AS "funcionarioNome",
               TO_CHAR(f.data,'DD/MM/YYYY') AS data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
               f.total_horas AS "totalHoras", f.compensado, f.observacao
          FROM folgas f
-         JOIN empresas   e  ON e.id  = f.empresa_id
+         JOIN companies  e  ON e.id  = f.empresa_id
          JOIN teams      eq ON eq.id = f.equipe_id
          JOIN funcionarios fn ON fn.id = f.funcionario_id
          ${where}
