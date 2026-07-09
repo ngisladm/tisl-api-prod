@@ -19,7 +19,7 @@ router.get("/", auth, async (req, res) => {
               f.empresa_id AS "empresaId", e.name AS "empresaNome",
               f.equipe_id  AS "equipeId",  eq.name AS "equipeNome",
               f.funcionario_id AS "funcionarioId", fn.nome AS "funcionarioNome",
-              TO_CHAR(f.data,'DD/MM/YYYY') AS data,
+              f.data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
               f.total_horas AS "totalHoras", f.compensado, f.observacao
          FROM folgas f
@@ -85,7 +85,7 @@ router.get("/relatorio", auth, async (req, res) => {
     const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
     const r = await pool.query(
       `SELECT fn.nome AS "funcionarioNome", eq.name AS "equipeNome",
-              TO_CHAR(f.data,'DD/MM/YYYY') AS data,
+              f.data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
               f.total_horas AS "totalHoras", f.compensado, f.observacao
          FROM folgas f

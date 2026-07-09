@@ -7,7 +7,7 @@ const path    = require("path");
 const fs      = require("fs");
 const nodemailer = require("nodemailer");
 
-const UPLOAD_DIR = "/app/uploads/politicas";
+const UPLOAD_DIR = process.env.UPLOAD_DIR || (process.platform === "win32" ? "C:/uploads/politicas" : "/app/uploads/politicas");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -32,7 +32,7 @@ router.get("/", auth, async (req, res) => {
     const r = await pool.query(
       `SELECT p.id, p.empresa_id AS "empresaId", e.name AS "empresaNome",
               p.nome_politica AS "nomePolitica",
-              TO_CHAR(p.data,'DD/MM/YYYY') AS data,
+              p.data,
               p.status, p.observacao, p.created_at AS "createdAt"
          FROM politicas_ti p
          JOIN companies e ON e.id = p.empresa_id
@@ -86,17 +86,24 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar política." }); }
 });
 
-// DELETE /politicas/:id
-router.delete("/:id", auth, async (req, res) => {
+// DELETE /politicas/anexos/:anexoId  ← deve vir ANTES de DELETE /:id
+router.delete("/anexos/:anexoId", auth, async (req, res) => {
   try {
-    const ar = await pool.query("SELECT filename FROM politicas_anexos WHERE politica_id=$1", [req.params.id]);
-    for (const a of ar.rows) {
-      const fp = path.join(UPLOAD_DIR, a.filename);
+    const r = await pool.query("SELECT filename FROM politicas_anexos WHERE id=$1", [req.params.anexoId]);
+    if (r.rows[0]) {
+      const fp = path.join(UPLOAD_DIR, r.rows[0].filename);
       if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      await pool.query("DELETE FROM politicas_anexos WHERE id=$1", [req.params.anexoId]);
     }
-    await pool.query("DELETE FROM politicas_ti WHERE id=$1", [req.params.id]);
     res.json({ success: true });
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir política." }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir anexo." }); }
+});
+
+// GET /politicas/download/:filename  ← deve vir ANTES de /:id
+router.get("/download/:filename", auth, (req, res) => {
+  const fp = path.join(UPLOAD_DIR, req.params.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: "Arquivo não encontrado." });
+  res.download(fp);
 });
 
 // POST /politicas/:id/anexos
@@ -114,24 +121,17 @@ router.post("/:id/anexos", auth, upload.array("files", 10), async (req, res) => 
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
 });
 
-// DELETE /politicas/anexos/:anexoId
-router.delete("/anexos/:anexoId", auth, async (req, res) => {
+// DELETE /politicas/:id
+router.delete("/:id", auth, async (req, res) => {
   try {
-    const r = await pool.query("SELECT filename FROM politicas_anexos WHERE id=$1", [req.params.anexoId]);
-    if (r.rows[0]) {
-      const fp = path.join(UPLOAD_DIR, r.rows[0].filename);
+    const ar = await pool.query("SELECT filename FROM politicas_anexos WHERE politica_id=$1", [req.params.id]);
+    for (const a of ar.rows) {
+      const fp = path.join(UPLOAD_DIR, a.filename);
       if (fs.existsSync(fp)) fs.unlinkSync(fp);
-      await pool.query("DELETE FROM politicas_anexos WHERE id=$1", [req.params.anexoId]);
     }
+    await pool.query("DELETE FROM politicas_ti WHERE id=$1", [req.params.id]);
     res.json({ success: true });
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir anexo." }); }
-});
-
-// GET /politicas/download/:filename
-router.get("/download/:filename", auth, (req, res) => {
-  const fp = path.join(UPLOAD_DIR, req.params.filename);
-  if (!fs.existsSync(fp)) return res.status(404).json({ error: "Arquivo não encontrado." });
-  res.download(fp);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir política." }); }
 });
 
 // POST /politicas/:id/enviar
