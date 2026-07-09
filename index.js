@@ -32,6 +32,8 @@ const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
 const feriasRoutes                 = require("./routes/ferias");
+const folgasRoutes                 = require("./routes/folgas");
+const politicasRoutes              = require("./routes/politicas");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -375,6 +377,41 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s31','Relatório de Féri
 migrate("UPDATE profiles SET permissions = permissions || '{\"s31\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's31')");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s32','Composição de Equipe','Relatórios') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s32\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's32')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s35','Controle de Folgas','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s35\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's35')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s36','Controle de Folgas','Relatórios') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s36\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's36')");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s37','Políticas de TI','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s37\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's37')");
+migrate(`CREATE TABLE IF NOT EXISTS folgas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id UUID REFERENCES empresas(id),
+  equipe_id UUID REFERENCES teams(id),
+  funcionario_id UUID REFERENCES funcionarios(id),
+  data VARCHAR(10) NOT NULL,
+  hora_inicio VARCHAR(5) NOT NULL,
+  hora_fim VARCHAR(5) NOT NULL,
+  total_horas VARCHAR(5),
+  compensado VARCHAR(3) DEFAULT 'Não',
+  observacao TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS politicas_ti (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id UUID REFERENCES empresas(id),
+  nome_politica VARCHAR(255) NOT NULL,
+  data VARCHAR(10) NOT NULL,
+  status VARCHAR(10) DEFAULT 'Ativo',
+  observacao TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS politicas_anexos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  politica_id UUID REFERENCES politicas_ti(id) ON DELETE CASCADE,
+  nome_original VARCHAR(255) NOT NULL,
+  filename VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s33','Configuração de Inventário','Cadastros') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s33\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's33')");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s34','Inventário de Rede','Movimentações') ON CONFLICT DO NOTHING");
@@ -536,6 +573,8 @@ app.use("/modelos-contrato",  modelosContratoRoutes);
 app.use("/email-config",      emailConfigRoutes);
 app.use("/historico-movimentacoes", historicoMovimentacoesRoutes);
 app.use("/ferias",                 feriasRoutes);
+app.use("/folgas",                 folgasRoutes);
+app.use("/politicas",              politicasRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 app.use("/inventory-config",  inventoryConfigRoutes);
