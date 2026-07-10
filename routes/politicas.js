@@ -153,13 +153,18 @@ router.post("/:id/enviar", auth, async (req, res) => {
       anexos = ar.rows;
     }
 
+    const decryptedPass = cfg.password ? (decrypt(cfg.password) || "") : "";
+    if (!cfg.user_email || !decryptedPass)
+      return res.status(400).json({ error: "Configuração de e-mail incompleta. Verifique o servidor SMTP, e-mail e senha." });
+
     const transporter = nodemailer.createTransport({
-      host: cfg.host, port: cfg.port, secure: cfg.secure,
-      auth: { user: cfg.user_email, pass: cfg.password ? decrypt(cfg.password) : "" },
+      host: cfg.host, port: cfg.port || 587, secure: cfg.secure || false,
+      auth: { user: cfg.user_email, pass: decryptedPass },
     });
 
+    const fromAddr = `"${cfg.from_name || "TI"}" <${cfg.user_email}>`;
     await transporter.sendMail({
-      from:        `"${cfg.from_name}" <${cfg.from_email}>`,
+      from: fromAddr,
       to:          emails.join(", "),
       subject:     assunto,
       text:        descricao,
