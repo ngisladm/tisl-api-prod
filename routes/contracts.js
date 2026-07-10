@@ -104,17 +104,17 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /contracts/:id
 router.put("/:id", auth, async (req, res) => {
-  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, attachments, frequencia } = req.body;
+  const { companyId, supplierId, contractNumber, dataInicio, dataFim, valor, valorAtual, observacao, frequencia } = req.body;
   if (!companyId || !supplierId)
     return res.status(400).json({ error: "Empresa e Fornecedor são obrigatórios." });
   try {
     const r = await pool.query(
       `UPDATE contracts
           SET company_id=$1, supplier_id=$2, contract_number=$3, data_inicio=$4, data_fim=$5,
-              valor=$6, valor_atual=$7, observacao=$8, attachments=$9, frequencia=$10, updated_at=NOW()
-        WHERE id=$11`,
+              valor=$6, valor_atual=$7, observacao=$8, frequencia=$9, updated_at=NOW()
+        WHERE id=$10`,
       [companyId, supplierId, contractNumber||null, parseDate(dataInicio), parseDate(dataFim),
-       valor||null, valorAtual||null, observacao||null, JSON.stringify(attachments||[]), frequencia||null, req.params.id]
+       valor||null, valorAtual||null, observacao||null, frequencia||null, req.params.id]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: "Não encontrado." });
     const row = await pool.query(`${BASE_SELECT} WHERE ct.id=$1`, [req.params.id]);
@@ -122,22 +122,6 @@ router.put("/:id", auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao atualizar contrato." });
-  }
-});
-
-// DELETE /contracts/:id
-router.delete("/:id", auth, async (req, res) => {
-  try {
-    const ar = await pool.query("SELECT filename FROM contracts_anexos WHERE contract_id=$1", [req.params.id]);
-    for (const a of ar.rows) {
-      const fp = path.join(UPLOAD_DIR, a.filename);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
-    }
-    await pool.query("DELETE FROM contracts WHERE id=$1", [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao excluir contrato." });
   }
 });
 
@@ -185,6 +169,22 @@ router.post("/:id/anexos", auth, upload.array("files", 10), async (req, res) => 
     }
     res.status(201).json(inserted);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
+});
+
+// DELETE /contracts/:id
+router.delete("/:id", auth, async (req, res) => {
+  try {
+    const ar = await pool.query("SELECT filename FROM contracts_anexos WHERE contract_id=$1", [req.params.id]);
+    for (const a of ar.rows) {
+      const fp = path.join(UPLOAD_DIR, a.filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    }
+    await pool.query("DELETE FROM contracts WHERE id=$1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao excluir contrato." });
+  }
 });
 
 module.exports = router;
