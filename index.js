@@ -412,6 +412,13 @@ migrate(`CREATE TABLE IF NOT EXISTS politicas_anexos (
   filename VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 )`);
+migrate(`CREATE TABLE IF NOT EXISTS itens_controle_anexos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id UUID REFERENCES itens_controle_ativos(id) ON DELETE CASCADE,
+  nome_original VARCHAR(255) NOT NULL,
+  filename VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s33','Configuração de Inventário','Cadastros') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s33\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's33')");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s34','Inventário de Rede','Movimentações') ON CONFLICT DO NOTHING");

@@ -3,6 +3,21 @@ const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
 const { canAccess } = require("../middleware/canAccess");
+const multer  = require("multer");
+const path    = require("path");
+const fs      = require("fs");
+
+const UPLOAD_DIR_CA = process.env.UPLOAD_DIR_CA || (process.platform === "win32" ? "C:/uploads/contratos" : "/app/uploads/contratos");
+if (!fs.existsSync(UPLOAD_DIR_CA)) fs.mkdirSync(UPLOAD_DIR_CA, { recursive: true });
+
+const storageCA = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR_CA),
+  filename:    (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random()*1e6)}`;
+    cb(null, unique + path.extname(file.originalname));
+  },
+});
+const uploadCA = multer({ storage: storageCA, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Registra snapshot do item no histórico de movimentações
 async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome, funcionarioDestinoNome) {
@@ -537,8 +552,7 @@ router.post("/carga-inicial", auth, async (req, res) => {
   res.json({ inseridos, erros });
 });
 
-// ── Anexos ────────────────────────────────────────────────────
-
+// ── Anexos (base64 legado) ─────────────────────────────────────
 router.put("/:id/itens/:itemId/anexos", auth, canAccess("s21","edit"), async (req, res) => {
   const { attachments } = req.body;
   try {
@@ -547,6 +561,54 @@ router.put("/:id/itens/:itemId/anexos", auth, canAccess("s21","edit"), async (re
       [JSON.stringify(attachments||[]), req.params.itemId, req.params.id]
     );
     res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
+});
+
+// ── Anexos em disco ────────────────────────────────────────────
+
+// GET /controle-ativos/download/:filename  ← ANTES de /:id
+router.get("/download/:filename", auth, (req, res) => {
+  const fp = path.join(UPLOAD_DIR_CA, req.params.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: "Arquivo não encontrado." });
+  res.download(fp);
+});
+
+// DELETE /controle-ativos/file-anexos/:anexoId  ← ANTES de /:id
+router.delete("/file-anexos/:anexoId", auth, canAccess("s21","edit"), async (req, res) => {
+  try {
+    const r = await pool.query("SELECT filename FROM itens_controle_anexos WHERE id=$1", [req.params.anexoId]);
+    if (r.rows[0]) {
+      const fp = path.join(UPLOAD_DIR_CA, r.rows[0].filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      await pool.query("DELETE FROM itens_controle_anexos WHERE id=$1", [req.params.anexoId]);
+    }
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir anexo." }); }
+});
+
+// GET /controle-ativos/:id/itens/:itemId/file-anexos
+router.get("/:id/itens/:itemId/file-anexos", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT id, nome_original AS \"nomeOriginal\", filename, created_at AS \"createdAt\" FROM itens_controle_anexos WHERE item_id=$1 ORDER BY created_at",
+      [req.params.itemId]
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar anexos." }); }
+});
+
+// POST /controle-ativos/:id/itens/:itemId/file-anexos
+router.post("/:id/itens/:itemId/file-anexos", auth, canAccess("s21","edit"), uploadCA.array("files", 10), async (req, res) => {
+  try {
+    const inserted = [];
+    for (const f of (req.files || [])) {
+      const r = await pool.query(
+        "INSERT INTO itens_controle_anexos (item_id, nome_original, filename) VALUES ($1,$2,$3) RETURNING id, nome_original AS \"nomeOriginal\", filename",
+        [req.params.itemId, f.originalname, f.filename]
+      );
+      inserted.push(r.rows[0]);
+    }
+    res.status(201).json(inserted);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
 });
 
