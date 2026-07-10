@@ -34,12 +34,12 @@ const BASE_SELECT = `
          ct.valor,
          ct.valor_atual     AS "valorAtual",
          ct.observacao,
-         ct.attachments,
          ct.frequencia,
          CASE WHEN ct.data_fim IS NOT NULL AND ct.data_fim <= CURRENT_DATE
               THEN 'Inativo' ELSE 'Ativo' END AS status,
          c.name  AS "companyName",
-         s.name  AS "supplierName"
+         s.name  AS "supplierName",
+         (SELECT COUNT(*) FROM contracts_anexos ca WHERE ca.contract_id = ct.id)::int AS "anexosCount"
     FROM contracts ct
     JOIN companies c ON c.id = ct.company_id
     JOIN suppliers s ON s.id = ct.supplier_id
