@@ -412,9 +412,9 @@ migrate(`CREATE TABLE IF NOT EXISTS politicas_anexos (
   filename VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 )`);
-migrate(`CREATE TABLE IF NOT EXISTS itens_controle_anexos (
+migrate(`CREATE TABLE IF NOT EXISTS contracts_anexos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  item_id UUID REFERENCES itens_controle_ativos(id) ON DELETE CASCADE,
+  contract_id UUID REFERENCES contracts(id) ON DELETE CASCADE,
   nome_original VARCHAR(255) NOT NULL,
   filename VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()

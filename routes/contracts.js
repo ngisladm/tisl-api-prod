@@ -2,6 +2,18 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const multer  = require("multer");
+const path    = require("path");
+const fs      = require("fs");
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR_CONTRACTS || (process.platform === "win32" ? "C:/uploads/contratos" : "/app/uploads/contratos");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename:    (req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random()*1e6)}${path.extname(file.originalname)}`),
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 const parseDate = (str) => {
   if (!str) return null;
@@ -116,12 +128,63 @@ router.put("/:id", auth, async (req, res) => {
 // DELETE /contracts/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
+    const ar = await pool.query("SELECT filename FROM contracts_anexos WHERE contract_id=$1", [req.params.id]);
+    for (const a of ar.rows) {
+      const fp = path.join(UPLOAD_DIR, a.filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    }
     await pool.query("DELETE FROM contracts WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao excluir contrato." });
   }
+});
+
+// GET /contracts/download/:filename  ← ANTES de /:id
+router.get("/download/:filename", auth, (req, res) => {
+  const fp = path.join(UPLOAD_DIR, req.params.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: "Arquivo não encontrado." });
+  res.download(fp);
+});
+
+// DELETE /contracts/anexos/:anexoId  ← ANTES de /:id
+router.delete("/anexos/:anexoId", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT filename FROM contracts_anexos WHERE id=$1", [req.params.anexoId]);
+    if (r.rows[0]) {
+      const fp = path.join(UPLOAD_DIR, r.rows[0].filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      await pool.query("DELETE FROM contracts_anexos WHERE id=$1", [req.params.anexoId]);
+    }
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir anexo." }); }
+});
+
+// GET /contracts/:id/anexos
+router.get("/:id/anexos", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT id, nome_original AS \"nomeOriginal\", filename FROM contracts_anexos WHERE contract_id=$1 ORDER BY created_at",
+      [req.params.id]
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar anexos." }); }
+});
+
+// POST /contracts/:id/anexos
+router.post("/:id/anexos", auth, upload.array("files", 10), async (req, res) => {
+  try {
+    const inserted = [];
+    for (const f of (req.files || [])) {
+      const r = await pool.query(
+        "INSERT INTO contracts_anexos (contract_id, nome_original, filename) VALUES ($1,$2,$3) RETURNING id, nome_original AS \"nomeOriginal\", filename",
+        [req.params.id, f.originalname, f.filename]
+      );
+      inserted.push(r.rows[0]);
+    }
+    res.status(201).json(inserted);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
 });
 
 module.exports = router;
