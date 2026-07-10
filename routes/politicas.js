@@ -6,7 +6,7 @@ const multer  = require("multer");
 const path    = require("path");
 const fs      = require("fs");
 const nodemailer = require("nodemailer");
-const { decrypt } = require("../utils/crypto-helper");
+const { decrypt } = require("./email-config");
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || (process.platform === "win32" ? "C:/uploads/politicas" : "/app/uploads/politicas");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -160,6 +160,7 @@ router.post("/:id/enviar", auth, async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: cfg.host, port: cfg.port || 587, secure: cfg.secure || false,
       auth: { user: cfg.user_email, pass: decryptedPass },
+      tls: { rejectUnauthorized: false },
     });
 
     const fromAddr = `"${cfg.from_name || "TI"}" <${cfg.user_email}>`;

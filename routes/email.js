@@ -41,7 +41,7 @@ router.post("/enviar-contrato", auth, async (req, res) => {
       ...(replyTo ? { replyTo } : {}),
       to: toEmail.trim(),
       subject: "Contrato de Ativos - TI",
-      text: "Prezado, por favor assinar o contrato em anexo e devolver a TI o mais rápido possível. Agradecemos. TI",
+      text: "Prezado(a),\n\nPor favor assinar o contrato em anexo e devolver para TI o mais rápido possível.\n\nAtenciosamente,\n\nEquipe de TI",
       attachments: [{
         filename: `contrato-${nome}.pdf`,
         content: Buffer.from(base64Data, "base64"),
