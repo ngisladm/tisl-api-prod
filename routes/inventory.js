@@ -318,6 +318,19 @@ router.delete("/collections/:id", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir coleta." }); }
 });
 
+// POST /inventory/collections/:id/reset — força reset de coleta travada
+router.post("/collections/:id/reset", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT status FROM inventory_collections WHERE id=$1", [req.params.id]);
+    if (!r.rows[0]) return res.status(404).json({ error: "Coleta não encontrada." });
+    await pool.query(
+      "UPDATE inventory_collections SET status='Erro', finished_at=NOW(), error_msg=$2 WHERE id=$1",
+      [req.params.id, "Cancelado manualmente pelo usuário."]
+    );
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao resetar coleta." }); }
+});
+
 // POST /inventory/collections/:id/scan
 router.post("/collections/:id/scan", auth, async (req, res) => {
   try {

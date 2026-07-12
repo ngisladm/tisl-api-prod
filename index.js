@@ -177,9 +177,9 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativ
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS status_ativo VARCHAR(20)",
 ].forEach(sql => pool.query(sql).catch(err => logger.error("[migration]", err.message)));
 
-// Garante permissões completas para s18-s21 em todos os perfis
+// Introduz s18-s21 nos perfis que ainda não os têm (sem sobrescrever configurações existentes)
 ["s18","s19","s20","s21"].forEach(s=>{
-  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb`).catch(err => logger.error("[migration]", err.message));
+  pool.query(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? '${s}')`).catch(err => logger.error("[migration]", err.message));
 });
 
 // Versão 5 — Funcionários (s22)
@@ -592,6 +592,10 @@ app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
 
 app.listen(PORT, () => {
   logger.info(`API rodando em http://localhost:${PORT}`);
+  // Coletas que ficaram "Executando" quando o servidor caiu devem ser marcadas como Erro
+  pool.query(
+    "UPDATE inventory_collections SET status='Erro', finished_at=NOW(), error_msg='Processo interrompido (servidor reiniciado).' WHERE status='Executando'"
+  ).catch(err => logger.error("[startup] Erro ao resetar coletas travadas:", err.message));
 });
 
 // Sync automático de funcionários: 06:00 e 18:00 todos os dias
