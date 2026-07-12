@@ -10,6 +10,22 @@ const RETURNING = `
             complemento, email, fone, observacao, situacao, coligada,
             created_at AS "createdAt"`;
 
+// GET /funcionarios/basic — lista mínima acessível por qualquer autenticado
+router.get("/basic", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, nome, cargo, centro_custo AS "centroCusto", situacao
+         FROM funcionarios
+        WHERE situacao = 'Ativo'
+        ORDER BY nome`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar funcionários." });
+  }
+});
+
 router.get("/", auth, canAccess("s22"), async (req, res) => {
   try {
     const r = await pool.query(

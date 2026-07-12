@@ -61,6 +61,25 @@ router.put("/me/password", auth, async (req, res) => {
   }
 });
 
+// GET /users/basic — lista mínima (sem dados sensíveis) acessível por qualquer autenticado
+router.get("/basic", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, apelido, active,
+              company_id    AS "companyId",
+              team_id       AS "teamId",
+              funcionario_id AS "funcionarioId"
+         FROM users
+        WHERE active = true
+        ORDER BY name`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar usuários." });
+  }
+});
+
 // GET /users
 router.get("/", auth, canAccess("s2"), async (req, res) => {
   try {
