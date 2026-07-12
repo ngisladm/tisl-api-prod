@@ -65,13 +65,16 @@ router.put("/me/password", auth, async (req, res) => {
 router.get("/basic", auth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, name, apelido, active,
-              company_id    AS "companyId",
-              team_id       AS "teamId",
-              funcionario_id AS "funcionarioId"
-         FROM users
-        WHERE active = true
-        ORDER BY name`
+      `SELECT u.id, u.name, u.apelido, u.active,
+              u.company_id AS "companyId",
+              COALESCE(
+                (SELECT ei.team_id FROM equipe_itens ei WHERE ei.funcionario_id = u.funcionario_id LIMIT 1),
+                u.team_id
+              ) AS "teamId",
+              u.funcionario_id AS "funcionarioId"
+         FROM users u
+        WHERE u.active = true
+        ORDER BY u.name`
     );
     res.json(r.rows);
   } catch (err) {
