@@ -28,6 +28,7 @@ const controleAtivosRoutes    = require("./routes/controle-ativos");
 const funcionariosRoutes      = require("./routes/funcionarios");
 const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
+const networkAddressesRoutes = require("./routes/network-addresses");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
@@ -547,6 +548,66 @@ migrate(`DO $$ BEGIN
   END IF;
 END $$`);
 
+// Gerenciamento de Endereços de Rede (s38)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s38\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's38')");
+migrate(`CREATE TABLE IF NOT EXISTS network_filiais (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome VARCHAR(200) NOT NULL,
+  cidade VARCHAR(200),
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+// Importação inicial encadeada após criação das tabelas para garantir ordem de execução
+pool.query(`CREATE TABLE IF NOT EXISTS network_ranges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  filial_id UUID REFERENCES network_filiais(id) ON DELETE CASCADE,
+  nome VARCHAR(200) NOT NULL,
+  ip_range VARCHAR(50) NOT NULL,
+  vlan VARCHAR(20),
+  observacao TEXT,
+  active BOOLEAN DEFAULT true,
+  sync_inventory BOOLEAN DEFAULT true,
+  inventory_network_id UUID REFERENCES inventory_networks(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`).then(() => pool.query(`
+  DO $$
+  DECLARE v_filial UUID;
+  BEGIN
+    IF (SELECT COUNT(*) FROM network_ranges) = 0 AND (SELECT COUNT(*) FROM inventory_networks) > 0 THEN
+      INSERT INTO network_filiais (nome, cidade, active)
+      VALUES ('Fortaleza', NULL, true)
+      ON CONFLICT DO NOTHING
+      RETURNING id INTO v_filial;
+      IF v_filial IS NULL THEN
+        SELECT id INTO v_filial FROM network_filiais WHERE nome = 'Fortaleza' LIMIT 1;
+      END IF;
+      INSERT INTO network_ranges (filial_id, nome, ip_range, active, sync_inventory, inventory_network_id)
+      SELECT v_filial, name, ip_range, active, true, id
+      FROM inventory_networks;
+    END IF;
+  END $$;
+`)).catch(err => logger.error("[migration] network_ranges:", err.message));
+
+// DHCP por faixa de rede (s38)
+migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS dhcp BOOLEAN DEFAULT false");
+migrate(`CREATE TABLE IF NOT EXISTS network_dhcp_config (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  range_id UUID UNIQUE REFERENCES network_ranges(id) ON DELETE CASCADE,
+  dhcp_start VARCHAR(15) NOT NULL,
+  dhcp_end   VARCHAR(15) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS network_dhcp_statics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  range_id UUID REFERENCES network_ranges(id) ON DELETE CASCADE,
+  ip VARCHAR(15) NOT NULL,
+  descricao TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(range_id, ip)
+)`);
+
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN rg TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
@@ -584,8 +645,9 @@ app.use("/folgas",                 folgasRoutes);
 app.use("/politicas",              politicasRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
-app.use("/inventory-config",  inventoryConfigRoutes);
-app.use("/inventory",         inventoryRoutes);
+app.use("/inventory-config",    inventoryConfigRoutes);
+app.use("/inventory",           inventoryRoutes);
+app.use("/network-addresses",   networkAddressesRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
