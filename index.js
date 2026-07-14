@@ -548,18 +548,17 @@ migrate(`DO $$ BEGIN
   END IF;
 END $$`);
 
-// Gerenciamento de Endereços de Rede (s38)
+// Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s38\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's38')");
-migrate(`CREATE TABLE IF NOT EXISTS network_filiais (
+pool.query(`CREATE TABLE IF NOT EXISTS network_filiais (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome VARCHAR(200) NOT NULL,
   cidade VARCHAR(200),
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW()
-)`);
-// Importação inicial encadeada após criação das tabelas para garantir ordem de execução
-pool.query(`CREATE TABLE IF NOT EXISTS network_ranges (
+)`)
+.then(() => pool.query(`CREATE TABLE IF NOT EXISTS network_ranges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filial_id UUID REFERENCES network_filiais(id) ON DELETE CASCADE,
   nome VARCHAR(200) NOT NULL,
@@ -569,9 +568,27 @@ pool.query(`CREATE TABLE IF NOT EXISTS network_ranges (
   active BOOLEAN DEFAULT true,
   sync_inventory BOOLEAN DEFAULT true,
   inventory_network_id UUID REFERENCES inventory_networks(id) ON DELETE SET NULL,
+  dhcp BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
-)`).then(() => pool.query(`
+)`))
+.then(() => pool.query("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS dhcp BOOLEAN DEFAULT false"))
+.then(() => pool.query(`CREATE TABLE IF NOT EXISTS network_dhcp_config (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  range_id UUID UNIQUE REFERENCES network_ranges(id) ON DELETE CASCADE,
+  dhcp_start VARCHAR(15) NOT NULL,
+  dhcp_end   VARCHAR(15) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`))
+.then(() => pool.query(`CREATE TABLE IF NOT EXISTS network_dhcp_statics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  range_id UUID REFERENCES network_ranges(id) ON DELETE CASCADE,
+  ip VARCHAR(15) NOT NULL,
+  descricao TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(range_id, ip)
+)`))
+.then(() => pool.query(`
   DO $$
   DECLARE v_filial UUID;
   BEGIN
@@ -588,25 +605,8 @@ pool.query(`CREATE TABLE IF NOT EXISTS network_ranges (
       FROM inventory_networks;
     END IF;
   END $$;
-`)).catch(err => logger.error("[migration] network_ranges:", err.message));
-
-// DHCP por faixa de rede (s38)
-migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS dhcp BOOLEAN DEFAULT false");
-migrate(`CREATE TABLE IF NOT EXISTS network_dhcp_config (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  range_id UUID UNIQUE REFERENCES network_ranges(id) ON DELETE CASCADE,
-  dhcp_start VARCHAR(15) NOT NULL,
-  dhcp_end   VARCHAR(15) NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-)`);
-migrate(`CREATE TABLE IF NOT EXISTS network_dhcp_statics (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  range_id UUID REFERENCES network_ranges(id) ON DELETE CASCADE,
-  ip VARCHAR(15) NOT NULL,
-  descricao TEXT,
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(range_id, ip)
-)`);
+`))
+.catch(err => logger.error("[migration] network setup:", err.message));
 
 // Ampliar colunas para comportar dados do SQL Server externo
 pool.query("ALTER TABLE funcionarios ALTER COLUMN estado TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
