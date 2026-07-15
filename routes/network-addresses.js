@@ -92,7 +92,10 @@ router.get("/ranges", auth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT nr.id, nr.filial_id AS "filialId", nf.nome AS "filialNome",
-              nr.nome, nr.ip_range AS "ipRange", nr.vlan, nr.observacao,
+              nr.nome, nr.ip_range AS "ipRange", nr.vlan,
+              COALESCE(nr.vlan_id, null) AS "vlanId",
+              COALESCE(nr.tipo, '') AS tipo,
+              nr.observacao,
               nr.active, nr.sync_inventory AS "syncInventory",
               nr.inventory_network_id AS "inventoryNetworkId",
               COALESCE(nr.dhcp, false) AS dhcp,
@@ -124,7 +127,7 @@ router.post("/validate", auth, async (req, res) => {
 });
 
 router.post("/ranges", auth, async (req, res) => {
-  const { filialId, nome, ipRange, vlan, observacao, active = true, syncInventory = true, dhcp = false } = req.body;
+  const { filialId, nome, ipRange, vlan, vlanId, tipo, observacao, active = true, syncInventory = true, dhcp = false } = req.body;
   if (!filialId || !nome?.trim() || !ipRange?.trim())
     return res.status(400).json({ error: "Filial, nome e faixa de IP são obrigatórios." });
   try {
@@ -143,12 +146,14 @@ router.post("/ranges", auth, async (req, res) => {
     }
 
     const r = await pool.query(
-      `INSERT INTO network_ranges (filial_id, nome, ip_range, vlan, observacao, active, sync_inventory, inventory_network_id, dhcp)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       RETURNING id, filial_id AS "filialId", nome, ip_range AS "ipRange", vlan, observacao,
+      `INSERT INTO network_ranges (filial_id, nome, ip_range, vlan, vlan_id, tipo, observacao, active, sync_inventory, inventory_network_id, dhcp)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, filial_id AS "filialId", nome, ip_range AS "ipRange", vlan,
+                 vlan_id AS "vlanId", tipo, observacao,
                  active, sync_inventory AS "syncInventory", inventory_network_id AS "inventoryNetworkId", dhcp`,
-      [filialId, nome.trim(), ipRange.trim(), vlan?.trim() || null, observacao?.trim() || null,
-       active, syncInventory, inventoryNetworkId, dhcp]
+      [filialId, nome.trim(), ipRange.trim(), vlan?.trim() || null,
+       vlanId ? parseInt(vlanId) : null, tipo?.trim() || null,
+       observacao?.trim() || null, active, syncInventory, inventoryNetworkId, dhcp]
     );
     const row = r.rows[0];
     const filial = await pool.query("SELECT nome FROM network_filiais WHERE id=$1", [filialId]);
@@ -157,7 +162,7 @@ router.post("/ranges", auth, async (req, res) => {
 });
 
 router.put("/ranges/:id", auth, async (req, res) => {
-  const { filialId, nome, ipRange, vlan, observacao, active, syncInventory, dhcp } = req.body;
+  const { filialId, nome, ipRange, vlan, vlanId, tipo, observacao, active, syncInventory, dhcp } = req.body;
   if (!filialId || !nome?.trim() || !ipRange?.trim())
     return res.status(400).json({ error: "Filial, nome e faixa de IP são obrigatórios." });
   try {
@@ -192,13 +197,17 @@ router.put("/ranges/:id", auth, async (req, res) => {
 
     const r = await pool.query(
       `UPDATE network_ranges
-          SET filial_id=$1, nome=$2, ip_range=$3, vlan=$4, observacao=$5, active=$6,
-              sync_inventory=$7, inventory_network_id=$8, dhcp=$9, updated_at=NOW()
-        WHERE id=$10
-       RETURNING id, filial_id AS "filialId", nome, ip_range AS "ipRange", vlan, observacao,
+          SET filial_id=$1, nome=$2, ip_range=$3, vlan=$4, vlan_id=$5, tipo=$6,
+              observacao=$7, active=$8, sync_inventory=$9, inventory_network_id=$10,
+              dhcp=$11, updated_at=NOW()
+        WHERE id=$12
+       RETURNING id, filial_id AS "filialId", nome, ip_range AS "ipRange", vlan,
+                 vlan_id AS "vlanId", tipo, observacao,
                  active, sync_inventory AS "syncInventory", inventory_network_id AS "inventoryNetworkId", dhcp`,
-      [filialId, nome.trim(), ipRange.trim(), vlan?.trim() || null, observacao?.trim() || null,
-       active, syncInventory, inventoryNetworkId, dhcp ?? false, req.params.id]
+      [filialId, nome.trim(), ipRange.trim(), vlan?.trim() || null,
+       vlanId ? parseInt(vlanId) : null, tipo?.trim() || null,
+       observacao?.trim() || null, active, syncInventory, inventoryNetworkId,
+       dhcp ?? false, req.params.id]
     );
     const filial = await pool.query("SELECT nome FROM network_filiais WHERE id=$1", [filialId]);
     res.json({ ...r.rows[0], filialNome: filial.rows[0]?.nome });

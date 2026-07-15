@@ -29,6 +29,9 @@ const funcionariosRoutes      = require("./routes/funcionarios");
 const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
 const networkAddressesRoutes = require("./routes/network-addresses");
+const filiaisRoutes          = require("./routes/filiais");
+const linksRoutes            = require("./routes/links");
+const firewallRoutes         = require("./routes/firewall");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
@@ -548,6 +551,77 @@ migrate(`DO $$ BEGIN
   END IF;
 END $$`);
 
+// Filiais (s39)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s39','Filiais','Cadastros') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s39\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's39')");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS logradouro VARCHAR(300)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS numero VARCHAR(20)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS bairro VARCHAR(200)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS estado VARCHAR(100)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS cep VARCHAR(10)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS complemento VARCHAR(300)");
+
+// Links (s40)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s40','Links','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s40\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's40')");
+migrate(`CREATE TABLE IF NOT EXISTS links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tipo VARCHAR(50),
+  empresa_contratante_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+  empresa_beneficiaria_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+  filial_id UUID REFERENCES network_filiais(id) ON DELETE SET NULL,
+  ccusto VARCHAR(300),
+  fornecedor_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+  velocidade VARCHAR(100),
+  contract_id UUID REFERENCES contracts(id) ON DELETE SET NULL,
+  email_conta VARCHAR(300),
+  senha_conta VARCHAR(300),
+  vr_equipamento NUMERIC(12,2),
+  vr_mensal NUMERIC(12,2),
+  numero_serie VARCHAR(200),
+  numero_conta VARCHAR(200),
+  plano VARCHAR(200),
+  observacao TEXT,
+  status VARCHAR(20) DEFAULT 'Ativo',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+
+// Firewall (s41)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s41','Firewall','Movimentações') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s41\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's41')");
+migrate(`CREATE TABLE IF NOT EXISTS firewall (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  equipamento VARCHAR(200) NOT NULL,
+  filial_id UUID REFERENCES network_filiais(id) ON DELETE SET NULL,
+  modelo VARCHAR(200),
+  numero_serie VARCHAR(200),
+  firmware VARCHAR(200),
+  rede_nativa VARCHAR(200),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS firewall_vlans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  firewall_id UUID REFERENCES firewall(id) ON DELETE CASCADE,
+  range_id UUID REFERENCES network_ranges(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(firewall_id, range_id)
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS firewall_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  firewall_id UUID REFERENCES firewall(id) ON DELETE CASCADE,
+  link_id UUID REFERENCES links(id) ON DELETE SET NULL,
+  portas VARCHAR(200),
+  ip_fixo VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+
+// Campos novos em network_ranges: vlan_id e tipo
+migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS vlan_id INTEGER");
+migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS tipo VARCHAR(20)");
+
 // Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s38\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's38')");
@@ -648,6 +722,9 @@ app.use("/sync",              syncRoutes);
 app.use("/inventory-config",    inventoryConfigRoutes);
 app.use("/inventory",           inventoryRoutes);
 app.use("/network-addresses",   networkAddressesRoutes);
+app.use("/filiais",             filiaisRoutes);
+app.use("/links",               linksRoutes);
+app.use("/firewall",            firewallRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
