@@ -4,6 +4,66 @@ const pool    = require("../db");
 const auth    = require("../middleware/auth");
 const { canAccess } = require("../middleware/canAccess");
 
+// ── Relatório de Firewall ────────────────────────────────────────
+
+router.get("/report", auth, async (req, res) => {
+  const { equipamento, filialId, modelo, numeroSerie, provedor, portas } = req.query;
+  try {
+    const fwWhere = [];
+    const fwParams = [];
+    let i = 1;
+    if (equipamento?.trim()) { fwWhere.push(`fw.equipamento ILIKE $${i++}`); fwParams.push(`%${equipamento.trim()}%`); }
+    if (filialId)             { fwWhere.push(`fw.filial_id=$${i++}`);         fwParams.push(filialId); }
+    if (modelo?.trim())       { fwWhere.push(`fw.modelo ILIKE $${i++}`);      fwParams.push(`%${modelo.trim()}%`); }
+    if (numeroSerie?.trim())  { fwWhere.push(`fw.numero_serie ILIKE $${i++}`);fwParams.push(`%${numeroSerie.trim()}%`); }
+
+    const fws = await pool.query(
+      `SELECT fw.id, fw.equipamento, fw.filial_id AS "filialId", nf.nome AS "filialNome",
+              fw.modelo, fw.numero_serie AS "numeroSerie", fw.firmware, fw.rede_nativa AS "redeNativa"
+         FROM firewall fw
+         LEFT JOIN network_filiais nf ON nf.id = fw.filial_id
+        ${fwWhere.length ? "WHERE " + fwWhere.join(" AND ") : ""}
+        ORDER BY fw.equipamento`,
+      fwParams
+    );
+
+    const result = [];
+    for (const fw of fws.rows) {
+      const vlans = await pool.query(
+        `SELECT nr.nome AS "rangeNome", nr.ip_range AS "ipRange", nr.vlan_id AS "vlanId", nr.tipo
+           FROM firewall_vlans fv
+           JOIN network_ranges nr ON nr.id = fv.range_id
+          WHERE fv.firewall_id=$1 ORDER BY nr.nome`,
+        [fw.id]
+      );
+
+      const linksWhere = ["fl.firewall_id=$1"];
+      const linksParams = [fw.id];
+      let li = 2;
+      if (provedor?.trim()) { linksWhere.push(`COALESCE(CONCAT(l.tipo,' — ',s.name,' — ',nf2.nome),'') ILIKE $${li++}`); linksParams.push(`%${provedor.trim()}%`); }
+      if (portas?.trim())   { linksWhere.push(`fl.portas ILIKE $${li++}`); linksParams.push(`%${portas.trim()}%`); }
+
+      const links = await pool.query(
+        `SELECT fl.portas, fl.ip_fixo AS "ipFixo",
+                CONCAT(l.tipo,' — ',s.name,' — ',nf2.nome) AS "provedorLabel"
+           FROM firewall_links fl
+           LEFT JOIN links l   ON l.id  = fl.link_id
+           LEFT JOIN suppliers s  ON s.id  = l.fornecedor_id
+           LEFT JOIN network_filiais nf2 ON nf2.id = l.filial_id
+          WHERE ${linksWhere.join(" AND ")}
+          ORDER BY fl.created_at`,
+        linksParams
+      );
+
+      if ((provedor?.trim() || portas?.trim()) && links.rows.length === 0) continue;
+
+      result.push({ ...fw, vlans: vlans.rows, links: links.rows });
+    }
+
+    res.json(result);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao gerar relatório de firewall." }); }
+});
+
 // ── Firewall ─────────────────────────────────────────────────────
 
 router.get("/", auth, canAccess("s41"), async (req, res) => {
@@ -70,6 +130,14 @@ router.delete("/:id", auth, canAccess("s41", "delete"), async (req, res) => {
 });
 
 // ── VLANs do Firewall ─────────────────────────────────────────────
+
+// Retorna todos os range_ids já vinculados a qualquer firewall
+router.get("/used-ranges", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT DISTINCT range_id AS \"rangeId\" FROM firewall_vlans");
+    res.json(r.rows.map(row => row.rangeId));
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar faixas em uso." }); }
+});
 
 router.get("/:id/vlans", auth, canAccess("s41"), async (req, res) => {
   try {

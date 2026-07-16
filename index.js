@@ -622,6 +622,10 @@ migrate(`CREATE TABLE IF NOT EXISTS firewall_links (
 migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS vlan_id INTEGER");
 migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS tipo VARCHAR(20)");
 
+// Relatório Firewall (s42)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s42','Relatório Firewall','Relatórios') ON CONFLICT DO NOTHING");
+migrate("UPDATE profiles SET permissions = permissions || '{\"s42\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's42')");
+
 // Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s38\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's38')");
