@@ -100,6 +100,41 @@ router.delete("/:id", auth, canAccess("s40", "delete"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir link." }); }
 });
 
+// GET /links/report
+router.get("/report", auth, async (req, res) => {
+  const { tipo, empresaContratanteId, cnpjContratante, filialId, ccusto, fornecedorId, status } = req.query;
+  try {
+    const where = [];
+    const params = [];
+    let i = 1;
+    if (tipo?.trim())                { where.push(`l.tipo ILIKE $${i++}`);                     params.push(`%${tipo.trim()}%`); }
+    if (empresaContratanteId)        { where.push(`l.empresa_contratante_id=$${i++}`);          params.push(empresaContratanteId); }
+    if (cnpjContratante?.trim())     { where.push(`ec.cnpj ILIKE $${i++}`);                    params.push(`%${cnpjContratante.trim()}%`); }
+    if (filialId)                    { where.push(`l.filial_id=$${i++}`);                       params.push(filialId); }
+    if (ccusto?.trim())              { where.push(`l.ccusto ILIKE $${i++}`);                    params.push(`%${ccusto.trim()}%`); }
+    if (fornecedorId)                { where.push(`l.fornecedor_id=$${i++}`);                   params.push(fornecedorId); }
+    if (status?.trim())              { where.push(`l.status=$${i++}`);                          params.push(status.trim()); }
+
+    const r = await pool.query(
+      `SELECT l.id, l.tipo,
+              l.filial_id AS "filialId", nf.nome AS "filialNome",
+              nf.logradouro, nf.numero AS "filialNumero", nf.bairro, nf.cidade, nf.estado, nf.cep, nf.complemento,
+              l.empresa_contratante_id AS "empresaContratanteId", ec.name AS "empresaContratanteNome", ec.cnpj AS "cnpjContratante",
+              l.ccusto, l.fornecedor_id AS "fornecedorId", s.name AS "fornecedorNome", s.contact_phone AS "contato",
+              l.velocidade, l.email_conta AS "emailConta", l.senha_conta AS "senhaConta",
+              l.numero_serie AS "numeroSerie", l.numero_conta AS "numeroConta", l.status
+         FROM links l
+         LEFT JOIN network_filiais nf ON nf.id = l.filial_id
+         LEFT JOIN companies ec ON ec.id = l.empresa_contratante_id
+         LEFT JOIN suppliers s ON s.id = l.fornecedor_id
+        ${where.length ? "WHERE " + where.join(" AND ") : ""}
+        ORDER BY nf.nome NULLS LAST, l.tipo`,
+      params
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao gerar relatório de links." }); }
+});
+
 // POST /links/import — importação CSV
 router.post("/import", auth, canAccess("s40", "insert"), async (req, res) => {
   const { rows } = req.body;
