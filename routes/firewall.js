@@ -19,7 +19,8 @@ router.get("/report", auth, async (req, res) => {
 
     const fws = await pool.query(
       `SELECT fw.id, fw.equipamento, fw.filial_id AS "filialId", nf.nome AS "filialNome",
-              fw.modelo, fw.numero_serie AS "numeroSerie", fw.firmware, fw.rede_nativa AS "redeNativa"
+              fw.modelo, fw.numero_serie AS "numeroSerie", fw.firmware, fw.rede_nativa AS "redeNativa",
+              fw.status
          FROM firewall fw
          LEFT JOIN network_filiais nf ON nf.id = fw.filial_id
         ${fwWhere.length ? "WHERE " + fwWhere.join(" AND ") : ""}
@@ -67,7 +68,7 @@ router.get("/report", auth, async (req, res) => {
 // ── Firewall ─────────────────────────────────────────────────────
 
 router.get("/", auth, canAccess("s41"), async (req, res) => {
-  const { equipamento, filialId, modelo, numeroSerie, firmware } = req.query;
+  const { equipamento, filialId, modelo, numeroSerie, firmware, status } = req.query;
   try {
     let where = [];
     let params = [];
@@ -77,11 +78,12 @@ router.get("/", auth, canAccess("s41"), async (req, res) => {
     if (modelo?.trim())       { where.push(`fw.modelo ILIKE $${i++}`);      params.push(`%${modelo.trim()}%`); }
     if (numeroSerie?.trim())  { where.push(`fw.numero_serie ILIKE $${i++}`);params.push(`%${numeroSerie.trim()}%`); }
     if (firmware?.trim())     { where.push(`fw.firmware ILIKE $${i++}`);    params.push(`%${firmware.trim()}%`); }
+    if (status?.trim())       { where.push(`fw.status=$${i++}`);            params.push(status.trim()); }
 
     const r = await pool.query(
       `SELECT fw.id, fw.equipamento, fw.filial_id AS "filialId", f.nome AS "filialNome",
               fw.modelo, fw.numero_serie AS "numeroSerie", fw.firmware, fw.rede_nativa AS "redeNativa",
-              fw.created_at AS "createdAt"
+              fw.status, fw.created_at AS "createdAt"
          FROM firewall fw
          LEFT JOIN network_filiais f ON f.id = fw.filial_id
         ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -93,29 +95,29 @@ router.get("/", auth, canAccess("s41"), async (req, res) => {
 });
 
 router.post("/", auth, canAccess("s41", "insert"), async (req, res) => {
-  const { equipamento, filialId, modelo, numeroSerie, firmware, redeNativa } = req.body;
+  const { equipamento, filialId, modelo, numeroSerie, firmware, redeNativa, status } = req.body;
   if (!equipamento?.trim()) return res.status(400).json({ error: "Equipamento é obrigatório." });
   try {
     const r = await pool.query(
-      `INSERT INTO firewall (equipamento, filial_id, modelo, numero_serie, firmware, rede_nativa)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      `INSERT INTO firewall (equipamento, filial_id, modelo, numero_serie, firmware, rede_nativa, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
       [equipamento.trim(), filialId||null, modelo?.trim()||null, numeroSerie?.trim()||null,
-       firmware?.trim()||null, redeNativa?.trim()||null]
+       firmware?.trim()||null, redeNativa?.trim()||null, status||'Ativo']
     );
     res.status(201).json({ id: r.rows[0].id });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar firewall." }); }
 });
 
 router.put("/:id", auth, canAccess("s41", "edit"), async (req, res) => {
-  const { equipamento, filialId, modelo, numeroSerie, firmware, redeNativa } = req.body;
+  const { equipamento, filialId, modelo, numeroSerie, firmware, redeNativa, status } = req.body;
   if (!equipamento?.trim()) return res.status(400).json({ error: "Equipamento é obrigatório." });
   try {
     const r = await pool.query(
       `UPDATE firewall SET equipamento=$1, filial_id=$2, modelo=$3, numero_serie=$4,
-         firmware=$5, rede_nativa=$6, updated_at=NOW()
-       WHERE id=$7 RETURNING id`,
+         firmware=$5, rede_nativa=$6, status=$7, updated_at=NOW()
+       WHERE id=$8 RETURNING id`,
       [equipamento.trim(), filialId||null, modelo?.trim()||null, numeroSerie?.trim()||null,
-       firmware?.trim()||null, redeNativa?.trim()||null, req.params.id]
+       firmware?.trim()||null, redeNativa?.trim()||null, status||'Ativo', req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Firewall não encontrado." });
     res.json({ success: true });

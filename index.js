@@ -560,6 +560,7 @@ migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS bairro VARCHAR(200
 migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS estado VARCHAR(100)");
 migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS cep VARCHAR(10)");
 migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS complemento VARCHAR(300)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES companies(id)");
 
 // Links (s40)
 migrate("INSERT INTO screens (id,name,module) VALUES ('s40','Links','Movimentações') ON CONFLICT DO NOTHING");
@@ -617,6 +618,7 @@ migrate(`CREATE TABLE IF NOT EXISTS firewall_links (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 )`);
+migrate("ALTER TABLE firewall ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Ativo'");
 
 // Campos novos em network_ranges: vlan_id e tipo
 migrate("ALTER TABLE network_ranges ADD COLUMN IF NOT EXISTS vlan_id INTEGER");
