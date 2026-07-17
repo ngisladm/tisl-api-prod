@@ -7,7 +7,7 @@ const { canAccess } = require("../middleware/canAccess");
 // ── Relatório de Firewall ────────────────────────────────────────
 
 router.get("/report", auth, async (req, res) => {
-  const { equipamento, filialId, modelo, numeroSerie, provedor, portas } = req.query;
+  const { equipamento, filialId, modelo, numeroSerie, provedor, portas, status } = req.query;
   try {
     const fwWhere = [];
     const fwParams = [];
@@ -16,6 +16,7 @@ router.get("/report", auth, async (req, res) => {
     if (filialId)             { fwWhere.push(`fw.filial_id=$${i++}`);         fwParams.push(filialId); }
     if (modelo?.trim())       { fwWhere.push(`fw.modelo ILIKE $${i++}`);      fwParams.push(`%${modelo.trim()}%`); }
     if (numeroSerie?.trim())  { fwWhere.push(`fw.numero_serie ILIKE $${i++}`);fwParams.push(`%${numeroSerie.trim()}%`); }
+    if (status?.trim())       { fwWhere.push(`fw.status=$${i++}`);            fwParams.push(status.trim()); }
 
     const fws = await pool.query(
       `SELECT fw.id, fw.equipamento, fw.filial_id AS "filialId", nf.nome AS "filialNome",
