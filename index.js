@@ -32,6 +32,13 @@ const networkAddressesRoutes = require("./routes/network-addresses");
 const filiaisRoutes          = require("./routes/filiais");
 const linksRoutes            = require("./routes/links");
 const firewallRoutes         = require("./routes/firewall");
+const consumoCcustoRoutes       = require("./routes/consumo-ccusto");
+const consumoItensRoutes        = require("./routes/consumo-itens");
+const consumoEstoquesRoutes     = require("./routes/consumo-estoques");
+const consumoMovimentacaoRoutes = require("./routes/consumo-movimentacao");
+const consumoSolicitacaoRoutes  = require("./routes/consumo-solicitacao");
+const consumoEntregaRoutes      = require("./routes/consumo-entrega");
+const consumoRecebimentoRoutes  = require("./routes/consumo-recebimento");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
@@ -632,6 +639,84 @@ migrate("UPDATE profiles SET permissions = permissions || '{\"s42\":{\"view\":tr
 migrate("INSERT INTO screens (id,name,module) VALUES ('s43','Relatório Links','Relatórios') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s43\":{\"view\":true,\"insert\":false,\"edit\":false,\"delete\":false}}'::jsonb WHERE NOT (permissions ? 's43')");
 
+// Versão 21 — Controle de Estoque e Consumo (s44-s49)
+migrate(`CREATE TABLE IF NOT EXISTS consumo_ccusto (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  centro_custo VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_itens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_estoques (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  estoque VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_solicitacao (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE,
+  item_id UUID REFERENCES consumo_itens(id) ON DELETE SET NULL,
+  estoque_id UUID REFERENCES consumo_estoques(id) ON DELETE SET NULL,
+  qtde_solicitada INTEGER DEFAULT 0,
+  qtde_atendida INTEGER DEFAULT 0,
+  status VARCHAR(30) DEFAULT 'Não Processado',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_movimentacao (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE,
+  item_id UUID REFERENCES consumo_itens(id) ON DELETE SET NULL,
+  estoque_id UUID REFERENCES consumo_estoques(id) ON DELETE SET NULL,
+  ccusto_despesa_id UUID REFERENCES consumo_ccusto(id) ON DELETE SET NULL,
+  qtde_estoque INTEGER DEFAULT 0,
+  ccusto_consumidor_id UUID REFERENCES consumo_ccusto(id) ON DELETE SET NULL,
+  qtde_consumida INTEGER DEFAULT 0,
+  qtde_solicitada INTEGER DEFAULT 0,
+  status VARCHAR(30) DEFAULT 'Não Processado',
+  solicitacao_id UUID REFERENCES consumo_solicitacao(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_entrega (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE,
+  movimentacao_id UUID REFERENCES consumo_movimentacao(id) ON DELETE SET NULL,
+  item_id UUID REFERENCES consumo_itens(id) ON DELETE SET NULL,
+  estoque_id UUID REFERENCES consumo_estoques(id) ON DELETE SET NULL,
+  ccusto_consumidor_id UUID REFERENCES consumo_ccusto(id) ON DELETE SET NULL,
+  observacao TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s44','Cadastro de CCusto','Cadastros') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s45','Cadastro de Ítens','Cadastros') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s46','Cadastro de Estoque','Cadastros') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s47','Movimentação de Ítens','Movimentações') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s48','Solicitação de Ítens','Movimentações') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s49','Entrega de Ítens','Movimentações') ON CONFLICT DO NOTHING");
+["s44","s45","s46"].forEach(s=>migrate(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? '${s}')`));
+migrate("ALTER TABLE consumo_estoques ADD COLUMN IF NOT EXISTS ccusto_estoque_id UUID REFERENCES consumo_ccusto(id)");
+["s47","s48","s49"].forEach(s=>migrate(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? '${s}')`));
+migrate(`DO $$ BEGIN ALTER TABLE consumo_movimentacao RENAME COLUMN qtde_reposta TO qtde_solicitada; EXCEPTION WHEN undefined_column THEN NULL; END $$`);
+migrate(`CREATE TABLE IF NOT EXISTS consumo_recebimento (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE,
+  movimentacao_id UUID REFERENCES consumo_movimentacao(id) ON DELETE SET NULL,
+  item_id UUID REFERENCES consumo_itens(id) ON DELETE SET NULL,
+  estoque_id UUID REFERENCES consumo_estoques(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s50','Recebimento de Estoque','Movimentações') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s50":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's50')`);
+
 // Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
 migrate("UPDATE profiles SET permissions = permissions || '{\"s38\":{\"view\":true,\"insert\":true,\"edit\":true,\"delete\":true}}'::jsonb WHERE NOT (permissions ? 's38')");
@@ -735,6 +820,13 @@ app.use("/network-addresses",   networkAddressesRoutes);
 app.use("/filiais",             filiaisRoutes);
 app.use("/links",               linksRoutes);
 app.use("/firewall",            firewallRoutes);
+app.use("/consumo-ccusto",        consumoCcustoRoutes);
+app.use("/consumo-itens",         consumoItensRoutes);
+app.use("/consumo-estoques",      consumoEstoquesRoutes);
+app.use("/consumo-movimentacao",  consumoMovimentacaoRoutes);
+app.use("/consumo-solicitacao",   consumoSolicitacaoRoutes);
+app.use("/consumo-entrega",       consumoEntregaRoutes);
+app.use("/consumo-recebimento",   consumoRecebimentoRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));
