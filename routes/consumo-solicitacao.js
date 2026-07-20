@@ -10,6 +10,7 @@ router.get("/", auth, canAccess("s48"), async (req, res) => {
     const r = await pool.query(`
       SELECT
         cs.id,
+        cs.numero,
         cs.data,
         ci.item,
         cs.item_id         AS "itemId",
@@ -47,9 +48,9 @@ async function processar(client, solicitacao) {
     await client.query(
       `INSERT INTO consumo_movimentacao
          (data, item_id, estoque_id, ccusto_despesa_id, qtde_estoque,
-          ccusto_consumidor_id, qtde_consumida, qtde_solicitada, status, solicitacao_id)
-       VALUES (CURRENT_DATE, $1, $2, $3, 0, NULL, 0, 1, $4, $5)`,
-      [identified.item_id, identified.estoque_id, identified.ccusto_consumidor_id, STATUS_AGUARDANDO, solicitacao.id]
+          ccusto_consumidor_id, qtde_consumida, qtde_solicitada, status, solicitacao_id, numero_solicitacao)
+       VALUES (CURRENT_DATE, $1, $2, $3, 0, NULL, 0, 1, $4, $5, $6)`,
+      [identified.item_id, identified.estoque_id, identified.ccusto_consumidor_id, STATUS_AGUARDANDO, solicitacao.id, solicitacao.numero]
     );
     totalInserido++;
   }
@@ -65,9 +66,9 @@ async function processar(client, solicitacao) {
       await client.query(
         `INSERT INTO consumo_movimentacao
            (data, item_id, estoque_id, ccusto_despesa_id, qtde_estoque,
-            ccusto_consumidor_id, qtde_consumida, qtde_solicitada, status, solicitacao_id)
-         VALUES (CURRENT_DATE, $1, $2, $3, 0, NULL, 0, 1, $4, $5)`,
-        [solicitacao.item_id, solicitacao.estoque_id, ccustoEstoqueId, STATUS_AGUARDANDO, solicitacao.id]
+            ccusto_consumidor_id, qtde_consumida, qtde_solicitada, status, solicitacao_id, numero_solicitacao)
+         VALUES (CURRENT_DATE, $1, $2, $3, 0, NULL, 0, 1, $4, $5, $6)`,
+        [solicitacao.item_id, solicitacao.estoque_id, ccustoEstoqueId, STATUS_AGUARDANDO, solicitacao.id, solicitacao.numero]
       );
       totalInserido++;
     }

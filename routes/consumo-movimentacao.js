@@ -29,7 +29,8 @@ router.get("/", auth, canAccess("s47"), async (req, res) => {
         cm.qtde_consumida AS "qtdeConsumida",
         cm.qtde_solicitada AS "qtdeSolicitada",
         cm.status,
-        cm.solicitacao_id AS "solicitacaoId"
+        cm.solicitacao_id AS "solicitacaoId",
+        cm.numero_solicitacao AS "numSolicitacao"
       FROM consumo_movimentacao cm
       LEFT JOIN consumo_itens    ci  ON ci.id  = cm.item_id
       LEFT JOIN consumo_estoques ce  ON ce.id  = cm.estoque_id

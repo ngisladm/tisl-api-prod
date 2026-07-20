@@ -39,6 +39,8 @@ const consumoMovimentacaoRoutes = require("./routes/consumo-movimentacao");
 const consumoSolicitacaoRoutes  = require("./routes/consumo-solicitacao");
 const consumoEntregaRoutes      = require("./routes/consumo-entrega");
 const consumoRecebimentoRoutes  = require("./routes/consumo-recebimento");
+const manutencaoRegistrosRoutes = require("./routes/manutencao-registros");
+const relatorioConsumoRoutes    = require("./routes/relatorio-consumo");
 const emailConfigRoutes = require("./routes/email-config");
 const emailRoutes       = require("./routes/email");
 const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes");
@@ -716,6 +718,42 @@ migrate(`CREATE TABLE IF NOT EXISTS consumo_recebimento (
 )`);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s50','Recebimento de Estoque','Movimentações') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s50":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's50')`);
+migrate(`CREATE TABLE IF NOT EXISTS manutencao_registros (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE,
+  ativo_id UUID REFERENCES ativos(id) ON DELETE SET NULL,
+  funcionario_id UUID REFERENCES funcionarios(id) ON DELETE SET NULL,
+  ccusto_id UUID REFERENCES consumo_ccusto(id) ON DELETE SET NULL,
+  observacao TEXT,
+  status VARCHAR(50),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS manutencao_itens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  manutencao_id UUID REFERENCES manutencao_registros(id) ON DELETE CASCADE,
+  data DATE,
+  tipo VARCHAR(100),
+  fornecedor_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+  funcionario_id UUID REFERENCES funcionarios(id) ON DELETE SET NULL,
+  observacao TEXT,
+  status VARCHAR(50),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s51','Registros de Manutenção','Movimentações') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s51":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's51')`);
+// Versão 23 — Num Solicitação
+migrate("ALTER TABLE consumo_solicitacao ADD COLUMN IF NOT EXISTS numero SERIAL");
+migrate("ALTER TABLE consumo_movimentacao ADD COLUMN IF NOT EXISTS numero_solicitacao INTEGER");
+// Versão 24 — Funcionário em Entrega; Relatórios de Consumo (s52-s56)
+migrate("ALTER TABLE consumo_entrega ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id) ON DELETE SET NULL");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s52','Movimentação de Ítens - Detalhado','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s53','Movimentação de Ítens - Agr Sol','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s54','Movimentação de Ítens - Resumo','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s55','Entrega de Ítens','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s56','Registros de Manutenção','Relatórios') ON CONFLICT DO NOTHING");
+["s52","s53","s54","s55","s56"].forEach(s=>migrate(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? '${s}')`));
 
 // Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");
@@ -827,6 +865,8 @@ app.use("/consumo-movimentacao",  consumoMovimentacaoRoutes);
 app.use("/consumo-solicitacao",   consumoSolicitacaoRoutes);
 app.use("/consumo-entrega",       consumoEntregaRoutes);
 app.use("/consumo-recebimento",   consumoRecebimentoRoutes);
+app.use("/manutencao-registros",  manutencaoRegistrosRoutes);
+app.use("/relatorio-consumo",     relatorioConsumoRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));

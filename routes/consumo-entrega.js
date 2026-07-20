@@ -13,74 +13,85 @@ router.get("/", auth, canAccess("s49"), async (req, res) => {
         ce.data,
         ci.item,
         ces.estoque,
-        cc.centro_custo   AS "ccustoConsumidor",
+        cc.centro_custo       AS "ccustoConsumidor",
+        f.nome                AS "funcionario",
+        ce.funcionario_id     AS "funcionarioId",
         ce.observacao,
-        ce.movimentacao_id AS "movimentacaoId"
+        ce.movimentacao_id    AS "movimentacaoId"
       FROM consumo_entrega ce
       LEFT JOIN consumo_itens    ci  ON ci.id  = ce.item_id
       LEFT JOIN consumo_estoques ces ON ces.id = ce.estoque_id
       LEFT JOIN consumo_ccusto   cc  ON cc.id  = ce.ccusto_consumidor_id
+      LEFT JOIN funcionarios     f   ON f.id   = ce.funcionario_id
       ORDER BY ce.data DESC, ce.created_at DESC
     `);
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar entregas." }); }
 });
 
-// GET /disponiveis — itens disponíveis para entrega (qtde_estoque=1), sem canAccess
-router.get("/disponiveis", auth, async (req, res) => {
+// GET /disponiveis-agrupados — agrupa movimentações (qtde_estoque=1) por Item+Estoque
+router.get("/disponiveis-agrupados", auth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT
-        cm.id,
-        ci.item,
-        ce.estoque,
-        CONCAT(ci.item, ' — ', ce.estoque) AS label
-      FROM consumo_movimentacao cm
-      LEFT JOIN consumo_itens    ci ON ci.id = cm.item_id
-      LEFT JOIN consumo_estoques ce ON ce.id = cm.estoque_id
-      WHERE cm.qtde_estoque = 1
-      ORDER BY ci.item, ce.estoque
+      SELECT cm.item_id    AS "itemId",
+             ci.item,
+             cm.estoque_id AS "estoqueId",
+             ce.estoque,
+             COUNT(*)::int  AS "qtdeEstoque"
+        FROM consumo_movimentacao cm
+        LEFT JOIN consumo_itens    ci ON ci.id = cm.item_id
+        LEFT JOIN consumo_estoques ce ON ce.id = cm.estoque_id
+       WHERE cm.qtde_estoque = 1
+       GROUP BY cm.item_id, ci.item, cm.estoque_id, ce.estoque
+       ORDER BY ci.item, ce.estoque
     `);
     res.json(r.rows);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar itens disponíveis." }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar disponíveis." }); }
 });
 
-// POST / — registra entrega e atualiza movimentação
+// POST / — registra entregas conforme qtde indicada por item+estoque
 router.post("/", auth, canAccess("s49"), async (req, res) => {
-  const { data, movimentacaoId, ccustoConsumidorId, observacao } = req.body;
-  if (!data || !movimentacaoId || !ccustoConsumidorId) {
-    return res.status(400).json({ error: "data, movimentacaoId e ccustoConsumidorId são obrigatórios." });
+  const { itens } = req.body;
+  if (!Array.isArray(itens) || itens.length === 0) {
+    return res.status(400).json({ error: "Informe ao menos um item com Qtde Entregue." });
+  }
+  const linhasValidas = itens.filter(l => l.qtdeEntregue > 0);
+  if (linhasValidas.length === 0) {
+    return res.status(400).json({ error: "Informe a Qtde Entregue em ao menos um item." });
   }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-
-    // Busca item_id e estoque_id da movimentação
-    const movRes = await client.query("SELECT item_id, estoque_id FROM consumo_movimentacao WHERE id=$1", [movimentacaoId]);
-    if (!movRes.rows[0]) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Movimentação não encontrada." }); }
-    const { item_id, estoque_id } = movRes.rows[0];
-
-    // 1. Insere a entrega
-    const r = await client.query(`
-      INSERT INTO consumo_entrega
-        (data, movimentacao_id, item_id, estoque_id, ccusto_consumidor_id, observacao)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id
-    `, [data, movimentacaoId, item_id, estoque_id, ccustoConsumidorId, observacao || null]);
-
-    // 2. Atualiza a movimentação
-    await client.query(`
-      UPDATE consumo_movimentacao
-         SET qtde_estoque=0, qtde_consumida=1, ccusto_consumidor_id=$1, status='Consumido', updated_at=NOW()
-       WHERE id=$2
-    `, [ccustoConsumidorId, movimentacaoId]);
-
+    for (const linha of linhasValidas) {
+      if (!linha.data || !linha.ccustoConsumidorId) continue;
+      const movRes = await client.query(
+        `SELECT id, item_id, estoque_id FROM consumo_movimentacao
+          WHERE item_id=$1 AND estoque_id=$2 AND qtde_estoque=1
+          ORDER BY created_at
+          LIMIT $3`,
+        [linha.itemId, linha.estoqueId, linha.qtdeEntregue]
+      );
+      for (const mov of movRes.rows) {
+        await client.query(
+          `INSERT INTO consumo_entrega
+             (data, movimentacao_id, item_id, estoque_id, ccusto_consumidor_id, funcionario_id, observacao)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [linha.data, mov.id, mov.item_id, mov.estoque_id, linha.ccustoConsumidorId, linha.funcionarioId || null, linha.observacao || null]
+        );
+        await client.query(
+          `UPDATE consumo_movimentacao
+              SET qtde_estoque=0, qtde_consumida=1, ccusto_consumidor_id=$1, status='Consumido', updated_at=NOW()
+            WHERE id=$2`,
+          [linha.ccustoConsumidorId, mov.id]
+        );
+      }
+    }
     await client.query("COMMIT");
-    res.status(201).json({ id: r.rows[0].id });
+    res.status(201).json({ success: true });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
-    res.status(500).json({ error: "Erro ao registrar entrega." });
+    res.status(500).json({ error: "Erro ao registrar entregas." });
   } finally {
     client.release();
   }

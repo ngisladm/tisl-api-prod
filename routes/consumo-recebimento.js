@@ -21,52 +21,60 @@ router.get("/", auth, canAccess("s50"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar recebimentos." }); }
 });
 
-// GET /disponiveis — movimentações com qtde_solicitada=1 (para o seletor)
-router.get("/disponiveis", auth, async (req, res) => {
+// GET /disponiveis-agrupados — agrupa movimentações (qtde_solicitada=1) por Item+Estoque
+router.get("/disponiveis-agrupados", auth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT cm.id,
-             ci.item, ce.estoque,
-             cm.item_id    AS "itemId",
+      SELECT cm.item_id    AS "itemId",
+             ci.item,
              cm.estoque_id AS "estoqueId",
-             ci.item || ' — ' || ce.estoque AS label
+             ce.estoque,
+             COUNT(*)::int  AS "qtdeSolicitada"
         FROM consumo_movimentacao cm
         LEFT JOIN consumo_itens    ci ON ci.id = cm.item_id
         LEFT JOIN consumo_estoques ce ON ce.id = cm.estoque_id
        WHERE cm.qtde_solicitada = 1
+       GROUP BY cm.item_id, ci.item, cm.estoque_id, ce.estoque
        ORDER BY ci.item, ce.estoque
     `);
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar disponíveis." }); }
 });
 
-// POST / — insere recebimentos e atualiza movimentações (transação)
+// POST / — insere recebimentos conforme qtde indicada por item+estoque
 router.post("/", auth, canAccess("s50"), async (req, res) => {
-  const { movimentacaoIds } = req.body;
-  if (!Array.isArray(movimentacaoIds) || movimentacaoIds.length === 0) {
-    return res.status(400).json({ error: "Selecione ao menos um item." });
+  const { itens } = req.body;
+  if (!Array.isArray(itens) || itens.length === 0) {
+    return res.status(400).json({ error: "Informe ao menos um item com Qtde Recebida." });
+  }
+  const linhasValidas = itens.filter(l => l.qtdeRecebida > 0);
+  if (linhasValidas.length === 0) {
+    return res.status(400).json({ error: "Informe a Qtde Recebida em ao menos um item." });
   }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    for (const movId of movimentacaoIds) {
+    for (const linha of linhasValidas) {
       const movRes = await client.query(
-        "SELECT item_id, estoque_id FROM consumo_movimentacao WHERE id=$1",
-        [movId]
+        `SELECT id, item_id, estoque_id FROM consumo_movimentacao
+          WHERE item_id=$1 AND estoque_id=$2 AND qtde_solicitada=1
+          ORDER BY created_at
+          LIMIT $3`,
+        [linha.itemId, linha.estoqueId, linha.qtdeRecebida]
       );
-      if (!movRes.rows[0]) continue;
-      const { item_id, estoque_id } = movRes.rows[0];
-      await client.query(
-        `INSERT INTO consumo_recebimento (data, movimentacao_id, item_id, estoque_id)
-         VALUES (CURRENT_DATE, $1, $2, $3)`,
-        [movId, item_id, estoque_id]
-      );
-      await client.query(
-        `UPDATE consumo_movimentacao
-            SET qtde_solicitada=0, qtde_estoque=1, status='Em Estoque', updated_at=NOW()
-          WHERE id=$1`,
-        [movId]
-      );
+      for (const mov of movRes.rows) {
+        await client.query(
+          `INSERT INTO consumo_recebimento (data, movimentacao_id, item_id, estoque_id)
+           VALUES (CURRENT_DATE, $1, $2, $3)`,
+          [mov.id, mov.item_id, mov.estoque_id]
+        );
+        await client.query(
+          `UPDATE consumo_movimentacao
+              SET qtde_solicitada=0, qtde_estoque=1, status='Em Estoque', updated_at=NOW()
+            WHERE id=$1`,
+          [mov.id]
+        );
+      }
     }
     await client.query("COMMIT");
     res.status(201).json({ success: true });
