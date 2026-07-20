@@ -754,6 +754,11 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s54','Movimentação de �
 migrate("INSERT INTO screens (id,name,module) VALUES ('s55','Entrega de Ítens','Relatórios') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s56','Registros de Manutenção','Relatórios') ON CONFLICT DO NOTHING");
 ["s52","s53","s54","s55","s56"].forEach(s=>migrate(`UPDATE profiles SET permissions = permissions || '{"${s}":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? '${s}')`));
+// Versão 25 — Descrição em CCusto
+migrate("ALTER TABLE consumo_ccusto ADD COLUMN IF NOT EXISTS descricao TEXT");
+// Versão 26 — Liberação de Linhas para Estoque (s57)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s57','Liberação de Linhas para Estoque','Movimentações') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s57":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's57')`);
 
 // Gerenciamento de Endereços de Rede (s38) — cadeia única para garantir ordem de execução
 migrate("INSERT INTO screens (id,name,module) VALUES ('s38','Endereços de Rede','Movimentações') ON CONFLICT DO NOTHING");

@@ -59,7 +59,7 @@ router.get("/selects", auth, async (req, res) => {
          ORDER BY a.nome
       `),
       pool.query("SELECT id, nome FROM funcionarios ORDER BY nome"),
-      pool.query(`SELECT id, centro_custo AS "centroCusto" FROM consumo_ccusto ORDER BY centro_custo`),
+      pool.query(`SELECT id, centro_custo AS "centroCusto", descricao FROM consumo_ccusto ORDER BY centro_custo`),
       pool.query("SELECT id, name FROM suppliers ORDER BY name"),
     ]);
     res.json({
@@ -83,6 +83,7 @@ router.get("/", auth, canAccess("s51"), async (req, res) => {
              a.imei_slot1    AS "imeiSlot1",
              f.nome          AS "funcionario",  mr.funcionario_id AS "funcionarioId",
              cc.centro_custo AS "ccusto",        mr.ccusto_id      AS "ccustoId",
+             cc.descricao    AS "descricaoCcusto",
              mr.observacao, mr.status
         FROM manutencao_registros mr
         LEFT JOIN ativos         a  ON a.id  = mr.ativo_id

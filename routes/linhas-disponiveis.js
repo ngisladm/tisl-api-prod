@@ -61,6 +61,41 @@ router.put("/:id", auth, canAccess("s19","edit"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar linha disponível." }); }
 });
 
+// GET /linhas-disponiveis/liberacao — linhas "Em análise" e "Em estoque" para s57
+router.get("/liberacao", auth, canAccess("s57"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT ld.id, ld.numero_linha AS "numeroLinha", ld.status,
+              ld.company_id    AS "companyId",    c.name AS "companyName",
+              ld.operadora_id  AS "operadoraId",  o.name AS "operadoraName",
+              ld.iccid, ld.acesso, ld.estrutura
+         FROM linhas_disponiveis ld
+         LEFT JOIN companies  c  ON c.id  = ld.company_id
+         LEFT JOIN operadoras o  ON o.id  = ld.operadora_id
+        WHERE ld.status IN ('Em análise','Em estoque')
+        ORDER BY o.name, ld.numero_linha`
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar linhas." }); }
+});
+
+// PATCH /linhas-disponiveis/:id/status — altera status (s57)
+router.patch("/:id/status", auth, canAccess("s57"), async (req, res) => {
+  const { status } = req.body;
+  const allowed = ["Em análise", "Em estoque"];
+  if (!allowed.includes(status))
+    return res.status(400).json({ error: "Status inválido para esta operação." });
+  try {
+    const cur = await pool.query("SELECT status FROM linhas_disponiveis WHERE id=$1", [req.params.id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: "Linha não encontrada." });
+    const currentStatus = cur.rows[0].status;
+    if (status === "Em análise" && currentStatus !== "Em estoque")
+      return res.status(400).json({ error: "Não é permitido reverter: o status atual não é 'Em estoque'." });
+    await pool.query("UPDATE linhas_disponiveis SET status=$1, updated_at=NOW() WHERE id=$2", [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar status." }); }
+});
+
 // POST /linhas-disponiveis/carga-inicial
 // CSV cols: 1=Operadora, 2=NumeroLinha, 3=Empresa, 4=TipoAtivo, 5=Status
 router.post("/carga-inicial", auth, async (req, res) => {

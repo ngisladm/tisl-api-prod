@@ -14,6 +14,7 @@ router.get("/", auth, canAccess("s49"), async (req, res) => {
         ci.item,
         ces.estoque,
         cc.centro_custo       AS "ccustoConsumidor",
+        cc.descricao          AS "descricaoCcusto",
         f.nome                AS "funcionario",
         ce.funcionario_id     AS "funcionarioId",
         ce.observacao,

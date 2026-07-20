@@ -7,7 +7,7 @@ const { canAccess } = require("../middleware/canAccess");
 // GET / — todos os centros de custo
 router.get("/", auth, canAccess("s44"), async (req, res) => {
   try {
-    const r = await pool.query(`SELECT id, centro_custo AS "centroCusto", created_at, updated_at FROM consumo_ccusto ORDER BY centro_custo`);
+    const r = await pool.query(`SELECT id, centro_custo AS "centroCusto", descricao, created_at, updated_at FROM consumo_ccusto ORDER BY centro_custo`);
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar centros de custo." }); }
 });
@@ -15,19 +15,19 @@ router.get("/", auth, canAccess("s44"), async (req, res) => {
 // GET /basic — sem canAccess (uso em selects de outras telas)
 router.get("/basic", auth, async (req, res) => {
   try {
-    const r = await pool.query(`SELECT id, centro_custo AS "centroCusto", created_at, updated_at FROM consumo_ccusto ORDER BY centro_custo`);
+    const r = await pool.query(`SELECT id, centro_custo AS "centroCusto", descricao, created_at, updated_at FROM consumo_ccusto ORDER BY centro_custo`);
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar centros de custo." }); }
 });
 
 // POST /
 router.post("/", auth, canAccess("s44"), async (req, res) => {
-  const { centroCusto } = req.body;
+  const { centroCusto, descricao } = req.body;
   if (!centroCusto?.trim()) return res.status(400).json({ error: "Centro de custo é obrigatório." });
   try {
     const r = await pool.query(
-      "INSERT INTO consumo_ccusto (centro_custo) VALUES ($1) RETURNING *",
-      [centroCusto.trim()]
+      "INSERT INTO consumo_ccusto (centro_custo, descricao) VALUES ($1, $2) RETURNING *",
+      [centroCusto.trim(), descricao?.trim() || null]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -38,12 +38,12 @@ router.post("/", auth, canAccess("s44"), async (req, res) => {
 
 // PUT /:id
 router.put("/:id", auth, canAccess("s44"), async (req, res) => {
-  const { centroCusto } = req.body;
+  const { centroCusto, descricao } = req.body;
   if (!centroCusto?.trim()) return res.status(400).json({ error: "Centro de custo é obrigatório." });
   try {
     const r = await pool.query(
-      "UPDATE consumo_ccusto SET centro_custo=$1, updated_at=NOW() WHERE id=$2 RETURNING *",
-      [centroCusto.trim(), req.params.id]
+      "UPDATE consumo_ccusto SET centro_custo=$1, descricao=$2, updated_at=NOW() WHERE id=$3 RETURNING *",
+      [centroCusto.trim(), descricao?.trim() || null, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Não encontrado." });
     res.json(r.rows[0]);
