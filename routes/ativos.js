@@ -39,6 +39,7 @@ const parseDate = str => {
   if (!str) return null;
   const [d, m, y] = str.split("/");
   if (!d || !m || !y) return null;
+  if (y === "0000" || d === "00" || m === "00") return null;
   return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
 };
 
