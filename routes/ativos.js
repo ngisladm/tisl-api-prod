@@ -170,24 +170,31 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
       const r = await pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1", [empresaNome]);
       companyId = r.rows[0]?.id || null;
     }
-    // Verifica duplicata: número de série > IMEI > nome+tipo+empresa
-    let dup = null;
-    if (numeroSerie) {
-      const r = await pool.query("SELECT id FROM ativos WHERE LOWER(numero_serie)=LOWER($1) LIMIT 1", [numeroSerie]);
-      dup = r.rows[0] || null;
-    }
-    if (!dup && imeiSlot1) {
-      const r = await pool.query("SELECT id FROM ativos WHERE LOWER(imei_slot1)=LOWER($1) LIMIT 1", [imeiSlot1]);
-      dup = r.rows[0] || null;
-    }
-    if (!dup && !numeroSerie && !imeiSlot1) {
-      const r = await pool.query(
-        "SELECT id FROM ativos WHERE LOWER(nome)=LOWER($1) AND tipo_ativo_id IS NOT DISTINCT FROM $2 AND company_id IS NOT DISTINCT FROM $3 LIMIT 1",
-        [nome, tipoAtivoId, companyId]
-      );
-      dup = r.rows[0] || null;
-    }
-    if (dup) { ignorados++; continue; }
+    // Verifica duplicata: todos os campos iguais
+    const marca      = (l["Marca"]          ||"").trim()||null;
+    const modelo     = (l["Modelo"]         ||"").trim()||null;
+    const nrDoc      = (l["Nº Documento"]   ||"").trim()||null;
+    const valor      = parseValorBR((l["Valor"]||"").trim());
+    const dataAq     = parseDate((l["Data Aquisição"]||"").trim());
+    const condicao   = (l["Condição"]       ||"").trim()||null;
+    const imeiSlot2  = (l["IMEI Slot 2"]   ||"").trim()||null;
+    const dupRes = await pool.query(
+      `SELECT id FROM ativos WHERE
+         LOWER(nome)               = LOWER($1)
+         AND tipo_ativo_id         IS NOT DISTINCT FROM $2
+         AND company_id            IS NOT DISTINCT FROM $3
+         AND LOWER(COALESCE(marca,''))       = LOWER(COALESCE($4,''))
+         AND LOWER(COALESCE(modelo,''))      = LOWER(COALESCE($5,''))
+         AND LOWER(COALESCE(numero_serie,''))= LOWER(COALESCE($6,''))
+         AND LOWER(COALESCE(imei_slot1,''))  = LOWER(COALESCE($7,''))
+         AND LOWER(COALESCE(numero_documento,''))= LOWER(COALESCE($8,''))
+         AND valor                 IS NOT DISTINCT FROM $9
+         AND data_aquisicao        IS NOT DISTINCT FROM $10
+         AND LOWER(COALESCE(condicao,''))    = LOWER(COALESCE($11,''))
+       LIMIT 1`,
+      [nome, tipoAtivoId, companyId, marca, modelo, numeroSerie||null, imeiSlot1||null, nrDoc, valor, dataAq, condicao]
+    );
+    if (dupRes.rows.length > 0) { ignorados++; continue; }
     try {
       await pool.query(
         `INSERT INTO ativos (nome,tipo_ativo_id,company_id,marca,modelo,numero_serie,
@@ -195,14 +202,14 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
            valor,data_aquisicao,condicao,acessorios,imei_slot1,imei_slot2,status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Em Estoque')`,
         [nome, tipoAtivoId, companyId,
-         (l["Marca"]||"").trim()||null, (l["Modelo"]||"").trim()||null,
+         marca, modelo,
          numeroSerie||null, (l["Sistema Operacional"]||"").trim()||null,
          (l["Versão"]||"").trim()||null, (l["Processador"]||"").trim()||null,
          (l["Memória"]||"").trim()||null, (l["HD"]||"").trim()||null,
-         (l["Patrimônio"]||"").trim()||null, (l["Nº Documento"]||"").trim()||null,
-         parseValorBR((l["Valor"]||"").trim()), parseDate((l["Data Aquisição"]||"").trim()),
-         (l["Condição"]||"").trim()||null, (l["Acessórios"]||"").trim()||null,
-         imeiSlot1||null, (l["IMEI Slot 2"]||"").trim()||null]
+         (l["Patrimônio"]||"").trim()||null, nrDoc,
+         valor, dataAq, condicao,
+         (l["Acessórios"]||"").trim()||null,
+         imeiSlot1||null, imeiSlot2||null]
       );
       inseridos++;
     } catch (e) { console.error("[importar-ativos]", e.message); erros.push(`${nome}: ${e.message}`); }
