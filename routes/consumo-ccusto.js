@@ -61,4 +61,32 @@ router.delete("/:id", auth, canAccess("s44"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir centro de custo." }); }
 });
 
+// Busca coluna ignorando maiúsculas, acentos e caracteres especiais
+function col(obj, nome) {
+  const norm = s => s.toLowerCase().normalize("NFD").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+  const n = norm(nome);
+  const k = Object.keys(obj).find(key => norm(key) === n);
+  return k ? (obj[k] || "").trim() : "";
+}
+
+// POST /importar — importa lista de centros de custo via CSV
+router.post("/importar", auth, canAccess("s44","edit"), async (req, res) => {
+  const { linhas } = req.body;
+  if (!Array.isArray(linhas) || linhas.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha para importar." });
+  let inseridos = 0, ignorados = 0;
+  for (const l of linhas) {
+    const centroCusto = col(l, "Centro de Custo");
+    const descricao   = col(l, "Descricao Ccusto") || col(l, "Descrição Ccusto") || null;
+    if (!centroCusto) { ignorados++; continue; }
+    const dup = await pool.query("SELECT id FROM consumo_ccusto WHERE LOWER(centro_custo)=LOWER($1) LIMIT 1", [centroCusto]);
+    if (dup.rows.length > 0) { ignorados++; continue; }
+    try {
+      await pool.query("INSERT INTO consumo_ccusto (centro_custo, descricao) VALUES ($1,$2)", [centroCusto, descricao]);
+      inseridos++;
+    } catch (e) { console.error(e); ignorados++; }
+  }
+  res.json({ success: true, inseridos, ignorados });
+});
+
 module.exports = router;

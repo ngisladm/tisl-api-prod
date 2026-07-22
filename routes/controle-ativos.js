@@ -549,4 +549,170 @@ router.put("/:id/itens/:itemId/anexos", auth, canAccess("s21","edit"), async (re
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao salvar anexos." }); }
 });
 
+// POST /controle-ativos/importar-cabecalho — cria registros de controle para lista de funcionários
+router.post("/importar-cabecalho", auth, canAccess("s21","edit"), async (req, res) => {
+  const { linhas } = req.body;
+  if (!Array.isArray(linhas) || linhas.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha para importar." });
+  let inseridos = 0, ignorados = 0;
+  for (const l of linhas) {
+    const nomeFuncionario = (l["Nome do Funcionário"] || "").trim();
+    if (!nomeFuncionario) continue;
+    const fRes = await pool.query(
+      "SELECT id, cpf FROM funcionarios WHERE LOWER(nome)=LOWER($1) LIMIT 1", [nomeFuncionario]
+    );
+    const funcionario = fRes.rows[0];
+    const funcionarioId = funcionario?.id || null;
+    const cpf = funcionario?.cpf || null;
+    const dupRes = funcionarioId
+      ? await pool.query("SELECT id FROM controle_ativos WHERE funcionario_id=$1 LIMIT 1", [funcionarioId])
+      : await pool.query("SELECT id FROM controle_ativos WHERE LOWER(nome_funcionario)=LOWER($1) LIMIT 1", [nomeFuncionario]);
+    if (dupRes.rows.length > 0) { ignorados++; continue; }
+    await pool.query(
+      "INSERT INTO controle_ativos (nome_funcionario, cpf, funcionario_id) VALUES ($1,$2,$3)",
+      [nomeFuncionario, cpf, funcionarioId]
+    );
+    inseridos++;
+  }
+  res.json({ success: true, inseridos, ignorados });
+});
+
+// Busca coluna ignorando maiúsculas, acentos e caracteres especiais
+function colCA(obj, nome) {
+  const norm = s => s.toLowerCase().normalize("NFD").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const n = norm(nome);
+  const k = Object.keys(obj).find(key => norm(key) === n);
+  return k ? (obj[k] || "").trim() : "";
+}
+
+// POST /controle-ativos/importar-itens — insere itens de controle por funcionário
+router.post("/importar-itens", auth, canAccess("s21","edit"), async (req, res) => {
+  const { linhas } = req.body;
+  if (!Array.isArray(linhas) || linhas.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha para importar." });
+  let inseridos = 0, atualizados = 0, naoEncontrados = 0; const erros = [];
+  for (const l of linhas) {
+    const nomeFuncionario = colCA(l, "Nome do Funcionário") || colCA(l, "Funcionário");
+    const tipoAtivoNome   = colCA(l, "Tipo de Ativo");
+    const empresaNome     = colCA(l, "Empresa");
+    if (!nomeFuncionario || !tipoAtivoNome) { naoEncontrados++; continue; }
+
+    const caRes = await pool.query(
+      "SELECT id FROM controle_ativos WHERE LOWER(nome_funcionario)=LOWER($1) LIMIT 1", [nomeFuncionario]
+    );
+    const controleAtivoId = caRes.rows[0]?.id;
+    if (!controleAtivoId) { naoEncontrados++; erros.push(`Funcionário não encontrado: ${nomeFuncionario}`); continue; }
+
+    const taRes = await pool.query("SELECT id FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]);
+    const tipoAtivoId = taRes.rows[0]?.id || null;
+    let companyId = null;
+    if (empresaNome) {
+      const cRes = await pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1", [empresaNome]);
+      companyId = cRes.rows[0]?.id || null;
+    }
+
+    const isTelefonia = tipoAtivoNome.toLowerCase() === "telefonia";
+    try {
+      if (isTelefonia) {
+        const numeroLinha = colCA(l, "Número Linha") || colCA(l, "Numero Linha");
+        let ldQ = "SELECT id, operadora_id, acesso, estrutura, iccid, tipo_pacote FROM linhas_disponiveis WHERE numero_linha=$1"; const ldP = [numeroLinha];
+        if (companyId) { ldQ += " AND company_id=$2"; ldP.push(companyId); }
+        const ldRes = await pool.query(ldQ + " LIMIT 1", ldP);
+        const ld = ldRes.rows[0] || null;
+        const linhaId = ld?.id || null;
+        const telVals = [companyId, tipoAtivoId, linhaId, ld?.operadora_id||null,
+          ld?.acesso||null, ld?.estrutura||null, ld?.iccid||null, ld?.tipo_pacote||null];
+        // Verifica duplicata: mesmo funcionário + mesma linha
+        const dupTel = linhaId
+          ? await pool.query("SELECT id FROM itens_controle_ativos WHERE controle_ativo_id=$1 AND linha_id=$2 LIMIT 1", [controleAtivoId, linhaId])
+          : { rows: [] };
+        if (dupTel.rows.length > 0) {
+          const itemId = dupTel.rows[0].id;
+          await pool.query(
+            `UPDATE itens_controle_ativos SET
+               company_id=$1,tipo_ativo_id=$2,linha_id=$3,operadora_id=$4,
+               acesso=$5,estrutura=$6,iccid=$7,tipo_pacote=$8,
+               status_ativo='Em uso',updated_at=NOW()
+             WHERE id=$9`,
+            [...telVals, itemId]
+          );
+          await logHistorico(controleAtivoId, itemId, "Edição", req.user?.name || "Sistema");
+          atualizados++;
+        } else {
+          const r = await pool.query(
+            `INSERT INTO itens_controle_ativos
+               (controle_ativo_id,company_id,tipo_ativo_id,linha_id,operadora_id,
+                acesso,estrutura,iccid,tipo_pacote,
+                status_ativo,attachments)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Em uso','[]') RETURNING id`,
+            [controleAtivoId, ...telVals]
+          );
+          if (linhaId) await pool.query("UPDATE linhas_disponiveis SET status='Em uso' WHERE id=$1", [linhaId]).catch(()=>{});
+          await logHistorico(controleAtivoId, r.rows[0].id, "Inclusão", req.user?.name || "Sistema");
+          inseridos++;
+        }
+      } else {
+        // Busca ativo por Nº de Série, depois por IMEI Slot 1
+        const nroSerie = colCA(l, "Nº de Série") || colCA(l, "No de Serie") || colCA(l, "Nr Serie");
+        const imei1    = colCA(l, "Imei(Slot1)") || colCA(l, "IMEI Slot 1") || colCA(l, "Imei Slot1");
+        let ativoId = null; let ativoRow = null;
+        const ativoFields = "id, marca, modelo, numero_serie, sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento, valor, data_aquisicao, condicao, acessorios, imei_slot1, imei_slot2";
+        if (nroSerie) {
+          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(numero_serie)=LOWER($1)`; const p = [nroSerie];
+          if (companyId) { q += " AND company_id=$2"; p.push(companyId); }
+          const r = await pool.query(q + " LIMIT 1", p);
+          if (r.rows[0]) { ativoId = r.rows[0].id; ativoRow = r.rows[0]; }
+        }
+        if (!ativoId && imei1) {
+          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(imei_slot1)=LOWER($1)`; const p = [imei1];
+          if (companyId) { q += " AND company_id=$2"; p.push(companyId); }
+          const r = await pool.query(q + " LIMIT 1", p);
+          if (r.rows[0]) { ativoId = r.rows[0].id; ativoRow = r.rows[0]; }
+        }
+        const atVals = [companyId, tipoAtivoId, ativoId,
+          ativoRow?.marca||null, ativoRow?.modelo||null, ativoRow?.numero_serie||null,
+          ativoRow?.sistema_operacional||null, ativoRow?.versao||null, ativoRow?.processador||null,
+          ativoRow?.memoria||null, ativoRow?.hd||null, ativoRow?.patrimonio||null,
+          ativoRow?.numero_documento||null, ativoRow?.valor||null, ativoRow?.data_aquisicao||null,
+          ativoRow?.condicao||null, ativoRow?.acessorios||null,
+          ativoRow?.imei_slot1||null, ativoRow?.imei_slot2||null];
+        // Verifica duplicata: mesmo funcionário + mesmo ativo
+        const dupAt = ativoId
+          ? await pool.query("SELECT id FROM itens_controle_ativos WHERE controle_ativo_id=$1 AND ativo_id=$2 LIMIT 1", [controleAtivoId, ativoId])
+          : { rows: [] };
+        if (dupAt.rows.length > 0) {
+          const itemId = dupAt.rows[0].id;
+          await pool.query(
+            `UPDATE itens_controle_ativos SET
+               company_id=$1,tipo_ativo_id=$2,ativo_id=$3,
+               marca=$4,modelo=$5,numero_serie=$6,sistema_operacional=$7,versao=$8,processador=$9,
+               memoria=$10,hd=$11,patrimonio=$12,numero_documento=$13,valor=$14,data_aquisicao=$15,
+               condicao=$16,acessorios=$17,imei_slot1=$18,imei_slot2=$19,
+               status_ativo='Em uso',updated_at=NOW()
+             WHERE id=$20`,
+            [...atVals, itemId]
+          );
+          await logHistorico(controleAtivoId, itemId, "Edição", req.user?.name || "Sistema");
+          atualizados++;
+        } else {
+          const r = await pool.query(
+            `INSERT INTO itens_controle_ativos
+               (controle_ativo_id,company_id,tipo_ativo_id,ativo_id,
+                marca,modelo,numero_serie,sistema_operacional,versao,processador,
+                memoria,hd,patrimonio,numero_documento,valor,data_aquisicao,
+                condicao,acessorios,imei_slot1,imei_slot2,
+                status_ativo,attachments)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Em uso','[]') RETURNING id`,
+            [controleAtivoId, ...atVals]
+          );
+          if (ativoId) await pool.query("UPDATE ativos SET status='Em uso' WHERE id=$1", [ativoId]).catch(()=>{});
+          await logHistorico(controleAtivoId, r.rows[0].id, "Inclusão", req.user?.name || "Sistema");
+          inseridos++;
+        }
+      }
+    } catch (e) { console.error("[importar-itens]", e.message); erros.push(`Erro em ${nomeFuncionario}: ${e.message}`); }
+  }
+  res.json({ success: true, inseridos, atualizados, naoEncontrados, erros: erros.slice(0,10) });
+});
+
 module.exports = router;

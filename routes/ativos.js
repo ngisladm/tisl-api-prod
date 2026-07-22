@@ -18,7 +18,8 @@ const FIELDS = `
   a.condicao, a.acessorios,
   a.imei_slot1 AS "imeiSlot1",
   a.imei_slot2 AS "imeiSlot2",
-  COALESCE(a.status,'Em Estoque') AS status
+  COALESCE(a.status,'Em Estoque') AS status,
+  a.observacao
 `;
 
 router.get("/", auth, canAccess("s20"), async (req, res) => {
@@ -44,7 +45,7 @@ const parseDate = str => {
 router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
-          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2 } = req.body;
+          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do ativo é obrigatório." });
   try {
     const r = await pool.query(
@@ -52,14 +53,14 @@ router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
          (nome, tipo_ativo_id, company_id, marca, modelo, numero_serie,
           sistema_operacional, versao, processador, memoria, hd, patrimonio,
           numero_documento, valor, data_aquisicao, condicao, acessorios,
-          imei_slot1, imei_slot2, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Em Estoque')
+          imei_slot1, imei_slot2, observacao, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Em Estoque')
        RETURNING id`,
       [nome.trim(), tipoAtivoId||null, companyId||null, marca||null, modelo||null,
        numeroSerie||null, sistemaOperacional||null, versao||null, processador||null,
        memoria||null, hd||null, patrimonio||null, numeroDocumento||null,
        valor||null, parseDate(dataAquisicao), condicao||null, acessorios||null,
-       imeiSlot1||null, imeiSlot2||null]
+       imeiSlot1||null, imeiSlot2||null, observacao||null]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar ativo." }); }
@@ -68,7 +69,7 @@ router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
 router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
-          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2 } = req.body;
+          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do ativo é obrigatório." });
   try {
     const r = await pool.query(
@@ -77,14 +78,14 @@ router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
          numero_serie=$6, sistema_operacional=$7, versao=$8, processador=$9,
          memoria=$10, hd=$11, patrimonio=$12, numero_documento=$13,
          valor=$14, data_aquisicao=$15, condicao=$16, acessorios=$17,
-         imei_slot1=$18, imei_slot2=$19, updated_at=NOW()
-       WHERE id=$20
+         imei_slot1=$18, imei_slot2=$19, observacao=$20, updated_at=NOW()
+       WHERE id=$21
        RETURNING id`,
       [nome.trim(), tipoAtivoId||null, companyId||null, marca||null, modelo||null,
        numeroSerie||null, sistemaOperacional||null, versao||null, processador||null,
        memoria||null, hd||null, patrimonio||null, numeroDocumento||null,
        valor||null, parseDate(dataAquisicao), condicao||null, acessorios||null,
-       imeiSlot1||null, imeiSlot2||null, req.params.id]
+       imeiSlot1||null, imeiSlot2||null, observacao||null, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Ativo não encontrado." });
     res.json({ success: true });
@@ -137,6 +138,55 @@ router.post("/:id/reverter-baixa", auth, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." }); }
+});
+
+// Converte valor em formato brasileiro (1.709,90) para numérico
+const parseValorBR = v => {
+  if (!v) return null;
+  const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
+  return isNaN(n) ? null : n;
+};
+
+// POST /ativos/importar — importa ativos via CSV (cria novos registros)
+router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
+  const { linhas } = req.body;
+  if (!Array.isArray(linhas) || linhas.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha para importar." });
+  let inseridos = 0; const erros = [];
+  for (const l of linhas) {
+    const nome = (l["Nome do Ativo"] || "").trim();
+    if (!nome) continue;
+    const tipoAtivoNome = (l["Tipo de Ativo"] || "").trim();
+    const empresaNome   = (l["Empresa"] || "").trim();
+    let tipoAtivoId = null, companyId = null;
+    if (tipoAtivoNome) {
+      const r = await pool.query("SELECT id FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]);
+      tipoAtivoId = r.rows[0]?.id || null;
+    }
+    if (empresaNome) {
+      const r = await pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1", [empresaNome]);
+      companyId = r.rows[0]?.id || null;
+    }
+    try {
+      await pool.query(
+        `INSERT INTO ativos (nome,tipo_ativo_id,company_id,marca,modelo,numero_serie,
+           sistema_operacional,versao,processador,memoria,hd,patrimonio,numero_documento,
+           valor,data_aquisicao,condicao,acessorios,imei_slot1,imei_slot2,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Em Estoque')`,
+        [nome, tipoAtivoId, companyId,
+         (l["Marca"]||"").trim()||null, (l["Modelo"]||"").trim()||null,
+         (l["Nº de Série"]||"").trim()||null, (l["Sistema Operacional"]||"").trim()||null,
+         (l["Versão"]||"").trim()||null, (l["Processador"]||"").trim()||null,
+         (l["Memória"]||"").trim()||null, (l["HD"]||"").trim()||null,
+         (l["Patrimônio"]||"").trim()||null, (l["Nº Documento"]||"").trim()||null,
+         parseValorBR((l["Valor"]||"").trim()), parseDate((l["Data Aquisição"]||"").trim()),
+         (l["Condição"]||"").trim()||null, (l["Acessórios"]||"").trim()||null,
+         (l["IMEI Slot 1"]||"").trim()||null, (l["IMEI Slot 2"]||"").trim()||null]
+      );
+      inseridos++;
+    } catch (e) { console.error("[importar-ativos]", e.message); erros.push(`${nome}: ${e.message}`); }
+  }
+  res.json({ success: true, inseridos, erros: erros.slice(0,10) });
 });
 
 module.exports = router;

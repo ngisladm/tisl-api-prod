@@ -182,6 +182,52 @@ router.post("/:id/reverter-baixa", auth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." }); }
 });
 
+// POST /linhas-disponiveis/importar — atualiza acesso/estrutura/iccid/tipo_pacote via CSV
+router.post("/importar", auth, canAccess("s19","edit"), async (req, res) => {
+  const { linhas } = req.body;
+  if (!Array.isArray(linhas) || linhas.length === 0)
+    return res.status(400).json({ error: "Nenhuma linha para importar." });
+  let atualizados = 0, naoEncontrados = 0;
+  const naoEncontradosList = [];
+  for (const l of linhas) {
+    const numeroLinha = (l["Número Linha"] || "").trim();
+    if (!numeroLinha) { naoEncontrados++; continue; }
+    const empresaNome   = (l["Empresa"] || "").trim();
+    const operadoraNome = (l["Operadora"] || "").trim();
+    const tipoAtivoNome = (l["Tipo de Ativo"] || "").trim();
+    const acesso      = (l["Acesso"] || "").trim() || null;
+    const estrutura   = (l["Estrutura"] || "").trim() || null;
+    const iccid       = (l["ICCID"] || "").trim() || null;
+    const tipoPacote  = (l["Tipo Pacote"] || "").trim() || null;
+    const status      = (l["Status"] || "").trim() || null;
+    let companyId = null, operadoraId = null, tipoAtivoId = null;
+    if (empresaNome) {
+      const r = await pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1", [empresaNome]);
+      companyId = r.rows[0]?.id || null;
+    }
+    if (operadoraNome) {
+      const r = await pool.query("SELECT id FROM operadoras WHERE LOWER(name)=LOWER($1) LIMIT 1", [operadoraNome]);
+      operadoraId = r.rows[0]?.id || null;
+    }
+    if (tipoAtivoNome) {
+      const r = await pool.query("SELECT id FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]);
+      tipoAtivoId = r.rows[0]?.id || null;
+    }
+    let where = "numero_linha=$1"; const params = [numeroLinha]; let idx = 2;
+    if (companyId)   { where += ` AND company_id=$${idx++}`;    params.push(companyId); }
+    if (operadoraId) { where += ` AND operadora_id=$${idx++}`;  params.push(operadoraId); }
+    if (tipoAtivoId) { where += ` AND tipo_ativo_id=$${idx++}`; params.push(tipoAtivoId); }
+    const found = await pool.query(`SELECT id FROM linhas_disponiveis WHERE ${where} LIMIT 1`, params);
+    if (!found.rows[0]) { naoEncontrados++; naoEncontradosList.push(numeroLinha); continue; }
+    const setParts = ["acesso=$2","estrutura=$3","iccid=$4","tipo_pacote=$5","updated_at=NOW()"];
+    const setParams = [found.rows[0].id, acesso, estrutura, iccid, tipoPacote];
+    if (status) { setParts.push(`status=$${setParams.length+1}`); setParams.push(status); }
+    await pool.query(`UPDATE linhas_disponiveis SET ${setParts.join(",")} WHERE id=$1`, setParams);
+    atualizados++;
+  }
+  res.json({ success: true, atualizados, naoEncontrados, naoEncontradosList: naoEncontradosList.slice(0,10) });
+});
+
 // DELETE /linhas-disponiveis/:id
 router.delete("/:id", auth, canAccess("s19","edit"), async (req, res) => {
   try {

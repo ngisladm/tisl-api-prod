@@ -306,6 +306,7 @@ pool.query("UPDATE profiles SET permissions = permissions || '{\"s28\":{\"view\"
   "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS imei_slot1 VARCHAR(100)",
   "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS imei_slot2 VARCHAR(100)",
   "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Em Estoque'",
+  "ALTER TABLE ativos ADD COLUMN IF NOT EXISTS observacao TEXT",
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS acesso VARCHAR(200)",
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS estrutura VARCHAR(200)",
   "ALTER TABLE linhas_disponiveis ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",

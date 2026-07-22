@@ -2,6 +2,119 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const multer  = require("multer");
+const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+// ── Detecção de formato ──────────────────────────────────────────────────────
+function detectarOperadora(linhas) {
+  const primeira = linhas[0] || "";
+  // TIM: separado por ; com cabeçalho NumAcs
+  if (primeira.split(";").length > 5 && primeira.includes("NumAcs")) return "TIM";
+  // Claro FEBRABAN V3: primeira linha começa com 0, longa e contém V3R ou CLARO
+  if (primeira[0] === "0" && primeira.length >= 300 && (primeira.includes("V3R") || primeira.includes("CLARO"))) return "CLARO";
+  // Vivo: tem registros 110D com telefone no formato XX-XXXXX-XXXX
+  const amostra = linhas.slice(0, 500).join("\n");
+  if (/110D\s+\d{2}-\d{5}-\d{4}/.test(amostra)) return "VIVO";
+  return null;
+}
+
+// ── Parser TIM ───────────────────────────────────────────────────────────────
+function parsearTIM(linhas) {
+  const valores = {}, planos = {}, consumo = {};
+  for (const l of linhas) {
+    const cols = l.split(";");
+    if (cols.length < 15) continue;
+    const numAcs = cols[3].trim(), tpserv = cols[6].trim(), valor = cols[14].trim();
+    if (!numAcs) continue;
+    if (tpserv.startsWith("Total de Mensalidades e Franquias")) {
+      valores[numAcs] = valor;
+      planos[numAcs]  = cols[4].trim();
+      if (!(numAcs in consumo)) consumo[numAcs] = "";
+    }
+  }
+  for (const l of linhas) {
+    const cols = l.split(";");
+    if (cols.length < 15) continue;
+    const numAcs = cols[3].trim(), durStr = cols[13].trim();
+    if (!numAcs || !(numAcs in consumo)) continue;
+    if (durStr && durStr !== "-" && durStr !== "N/R") consumo[numAcs] = durStr;
+  }
+  return Object.keys(valores).sort().map(n => ({
+    numeroLinha: n, plano: planos[n]||"", consumoLinha: consumo[n]||"", valorLinha: valores[n]||"",
+  }));
+}
+
+// ── Parser Claro (FEBRABAN V3) ───────────────────────────────────────────────
+function parsearClaro(linhas) {
+  const valores = {}, planos = {}, consumoMB = {};
+  for (const l of linhas) {
+    if (l.length < 152 || l[0] !== "1") continue;
+    const ph = l.substring(53, 64).trim();
+    if (!/^\d{11}$/.test(ph)) continue;
+    const valStr = l.substring(135, 152);
+    if (/^\d+$/.test(valStr)) valores[ph] = (parseInt(valStr, 10) / 100).toFixed(2);
+    if (!(ph in consumoMB)) consumoMB[ph] = 0;
+    if (!(ph in planos))    planos[ph]    = "";
+  }
+  for (const l of linhas) {
+    if (l.length < 216 || l[0] !== "6") continue;
+    const ph = l.substring(53, 64).trim();
+    if (!(ph in planos) || planos[ph]) continue;
+    const p = l.substring(191, 216).trim();
+    if (p && !p.startsWith("PLANO VOZ")) planos[ph] = p;
+  }
+  for (const l of linhas) {
+    if (l.length < 145 || l[0] !== "4") continue;
+    const ph = l.substring(53, 64).trim();
+    if (!(ph in consumoMB)) continue;
+    const m = l.match(/(\d{6})(MB|KB|GB)/);
+    if (m) {
+      const qty = parseInt(m[1], 10);
+      if      (m[2] === "KB") consumoMB[ph] += qty / 1024;
+      else if (m[2] === "MB") consumoMB[ph] += qty;
+      else                    consumoMB[ph] += qty * 1024;
+    }
+  }
+  return Object.keys(valores).sort().map(ph => ({
+    numeroLinha: ph, plano: planos[ph]||"",
+    consumoLinha: Math.round(consumoMB[ph] * 100) / 100 + "MB",
+    valorLinha: valores[ph]||"",
+  }));
+}
+
+// ── Parser Vivo ──────────────────────────────────────────────────────────────
+function parsearVivo(linhas) {
+  const valores = {}, planos = {}, consumoMB = {};
+  for (const l of linhas) {
+    if (!l.includes("110D")) continue;
+    const m = l.match(/110D\s+(\d{2}-\d{5}-\d{4})\s{5,}(.+?)\s{5,}([\d.]+)A/);
+    if (m) {
+      const ph = m[1].replace(/-/g, "");
+      valores[ph]   = parseFloat(m[3]).toFixed(2);
+      planos[ph]    = m[2].trim();
+      consumoMB[ph] = 0;
+    }
+  }
+  for (const l of linhas) {
+    if (!l.includes("282D00")) continue;
+    const mPh = l.match(/^(\d{10})\s+\d{10}\s+(\d{11})\s/);
+    if (!mPh) continue;
+    const ph = mPh[2];
+    if (!(ph in consumoMB)) continue;
+    const mC = l.match(/282D00.+?([\d]+\.[\d]+)\s+(KB|MB|GB)/);
+    if (mC) {
+      const qty = parseFloat(mC[1]);
+      if      (mC[2] === "KB") consumoMB[ph] += qty / 1024;
+      else if (mC[2] === "MB") consumoMB[ph] += qty;
+      else                     consumoMB[ph] += qty * 1024;
+    }
+  }
+  return Object.keys(valores).sort().map(ph => ({
+    numeroLinha: ph, plano: planos[ph]||"",
+    consumoLinha: Math.round(consumoMB[ph] * 100) / 100 + "MB",
+    valorLinha: valores[ph]||"",
+  }));
+}
 
 // GET /linhas-faturadas
 router.get("/", auth, async (req, res) => {
@@ -140,6 +253,28 @@ router.get("/:id/itens", auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar itens." });
+  }
+});
+
+// POST /linhas-faturadas/:id/itens/parsear-arquivo — parse arquivo bruto TIM/Claro/Vivo, retorna itens para preview
+router.post("/:id/itens/parsear-arquivo", auth, upload.single("arquivo"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado." });
+  try {
+    const texto  = req.file.buffer.toString("utf8");
+    const linhas = texto.split(/\r?\n/).filter(l => l.trim());
+    const operadora = detectarOperadora(linhas);
+    if (!operadora)
+      return res.status(400).json({ error: "Formato não reconhecido. Envie um arquivo TIM (.txt), Claro (FEBRABAN V3) ou Vivo (SL_VIVO)." });
+    let itens;
+    if      (operadora === "TIM")   itens = parsearTIM(linhas);
+    else if (operadora === "CLARO") itens = parsearClaro(linhas);
+    else                            itens = parsearVivo(linhas);
+    if (itens.length === 0)
+      return res.status(400).json({ error: "Nenhum item encontrado no arquivo." });
+    res.json({ operadoraDetectada: operadora, total: itens.length, itens });
+  } catch (err) {
+    console.error("[parsear-arquivo]", err);
+    res.status(500).json({ error: "Erro ao processar o arquivo." });
   }
 });
 
