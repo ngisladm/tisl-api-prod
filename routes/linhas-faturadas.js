@@ -24,7 +24,7 @@ function parsearTIM(linhas) {
   for (const l of linhas) {
     const cols = l.split(";");
     if (cols.length < 15) continue;
-    const numAcs = cols[3].trim(), tpserv = cols[6].trim(), valor = cols[14].trim();
+    const numAcs = cols[3].trim().replace(/-/g,""), tpserv = cols[6].trim(), valor = cols[14].trim();
     if (!numAcs) continue;
     if (tpserv.startsWith("Total de Mensalidades e Franquias")) {
       valores[numAcs] = valor;
@@ -35,7 +35,7 @@ function parsearTIM(linhas) {
   for (const l of linhas) {
     const cols = l.split(";");
     if (cols.length < 15) continue;
-    const numAcs = cols[3].trim(), durStr = cols[13].trim();
+    const numAcs = cols[3].trim().replace(/-/g,""), durStr = cols[13].trim();
     if (!numAcs || !(numAcs in consumo)) continue;
     if (durStr && durStr !== "-" && durStr !== "N/R") consumo[numAcs] = durStr;
   }
@@ -289,7 +289,7 @@ router.post("/:id/itens/importar", auth, async (req, res) => {
       await pool.query(
         `INSERT INTO itens_linhas_faturadas (linha_faturada_id, numero_linha, plano, consumo_linha, valor_linha)
          VALUES ($1,$2,$3,$4,$5)`,
-        [req.params.id, item.numeroLinha||null, item.plano||null, item.consumoLinha||null, item.valorLinha||null]
+        [req.params.id, (item.numeroLinha||"").replace(/-/g,"")||null, item.plano||null, item.consumoLinha||null, item.valorLinha||null]
       );
     }
     res.json({ success: true, total: itens.length });

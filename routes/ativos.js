@@ -153,12 +153,14 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
   const { linhas } = req.body;
   if (!Array.isArray(linhas) || linhas.length === 0)
     return res.status(400).json({ error: "Nenhuma linha para importar." });
-  let inseridos = 0; const erros = [];
+  let inseridos = 0, ignorados = 0; const erros = [];
   for (const l of linhas) {
-    const nome = (l["Nome do Ativo"] || "").trim();
+    const nome        = (l["Nome do Ativo"] || "").trim();
     if (!nome) continue;
+    const numeroSerie = (l["Nº de Série"]   || "").trim();
+    const imeiSlot1   = (l["IMEI Slot 1"]   || "").trim();
     const tipoAtivoNome = (l["Tipo de Ativo"] || "").trim();
-    const empresaNome   = (l["Empresa"] || "").trim();
+    const empresaNome   = (l["Empresa"]       || "").trim();
     let tipoAtivoId = null, companyId = null;
     if (tipoAtivoNome) {
       const r = await pool.query("SELECT id FROM tipo_ativos WHERE LOWER(name)=LOWER($1) LIMIT 1", [tipoAtivoNome]);
@@ -168,6 +170,24 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
       const r = await pool.query("SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1", [empresaNome]);
       companyId = r.rows[0]?.id || null;
     }
+    // Verifica duplicata: número de série > IMEI > nome+tipo+empresa
+    let dup = null;
+    if (numeroSerie) {
+      const r = await pool.query("SELECT id FROM ativos WHERE LOWER(numero_serie)=LOWER($1) LIMIT 1", [numeroSerie]);
+      dup = r.rows[0] || null;
+    }
+    if (!dup && imeiSlot1) {
+      const r = await pool.query("SELECT id FROM ativos WHERE LOWER(imei_slot1)=LOWER($1) LIMIT 1", [imeiSlot1]);
+      dup = r.rows[0] || null;
+    }
+    if (!dup && !numeroSerie && !imeiSlot1) {
+      const r = await pool.query(
+        "SELECT id FROM ativos WHERE LOWER(nome)=LOWER($1) AND tipo_ativo_id IS NOT DISTINCT FROM $2 AND company_id IS NOT DISTINCT FROM $3 LIMIT 1",
+        [nome, tipoAtivoId, companyId]
+      );
+      dup = r.rows[0] || null;
+    }
+    if (dup) { ignorados++; continue; }
     try {
       await pool.query(
         `INSERT INTO ativos (nome,tipo_ativo_id,company_id,marca,modelo,numero_serie,
@@ -176,18 +196,18 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Em Estoque')`,
         [nome, tipoAtivoId, companyId,
          (l["Marca"]||"").trim()||null, (l["Modelo"]||"").trim()||null,
-         (l["Nº de Série"]||"").trim()||null, (l["Sistema Operacional"]||"").trim()||null,
+         numeroSerie||null, (l["Sistema Operacional"]||"").trim()||null,
          (l["Versão"]||"").trim()||null, (l["Processador"]||"").trim()||null,
          (l["Memória"]||"").trim()||null, (l["HD"]||"").trim()||null,
          (l["Patrimônio"]||"").trim()||null, (l["Nº Documento"]||"").trim()||null,
          parseValorBR((l["Valor"]||"").trim()), parseDate((l["Data Aquisição"]||"").trim()),
          (l["Condição"]||"").trim()||null, (l["Acessórios"]||"").trim()||null,
-         (l["IMEI Slot 1"]||"").trim()||null, (l["IMEI Slot 2"]||"").trim()||null]
+         imeiSlot1||null, (l["IMEI Slot 2"]||"").trim()||null]
       );
       inseridos++;
     } catch (e) { console.error("[importar-ativos]", e.message); erros.push(`${nome}: ${e.message}`); }
   }
-  res.json({ success: true, inseridos, erros: erros.slice(0,10) });
+  res.json({ success: true, inseridos, ignorados, erros: erros.slice(0,10) });
 });
 
 module.exports = router;
