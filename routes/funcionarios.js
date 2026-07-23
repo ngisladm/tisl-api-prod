@@ -10,13 +10,13 @@ const RETURNING = `
             complemento, email, fone, observacao, situacao, coligada,
             created_at AS "createdAt"`;
 
-// GET /funcionarios/basic — lista acessível por qualquer autenticado (sem CPF/RG/endereço)
+// GET /funcionarios/basic — lista acessível por qualquer autenticado
 router.get("/basic", auth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT id, nome, matricula, cargo,
               centro_custo AS "centroCusto",
-              email, fone, situacao, coligada
+              email, fone, situacao, coligada, cpf
          FROM funcionarios
         ORDER BY nome`
     );
