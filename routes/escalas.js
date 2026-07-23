@@ -302,12 +302,12 @@ router.get("/:id/relatorio-calendario", auth, async (req, res) => {
 
 // GET /escalas/relatorio/horas
 router.get("/relatorio/horas", auth, async (req, res) => {
-  const { dataInicio, dataFim, funcionarioId, teamId, companyId } = req.query;
-  if (!dataInicio || !dataFim) return res.status(400).json({ error: "Período obrigatório." });
+  const { dataInicio, dataFim, funcionarioId, teamIds: rawTeamIds, companyId } = req.query;
+  const teamIds = rawTeamIds ? rawTeamIds.split(",").filter(Boolean) : [];
 
   const parseDate = (str) => { const [d,m,y] = str.split("/"); return `${y}-${m}-${d}`; };
-  const di = parseDate(dataInicio);
-  const df = parseDate(dataFim);
+  const di = dataInicio ? parseDate(dataInicio) : null;
+  const df = dataFim    ? parseDate(dataFim)    : null;
 
   function toMinutes(t){ if(!t)return 0; const[h,m]=t.split(":").map(Number); return h*60+m; }
   function minutesToHHMM(m){ if(!m||m<=0)return"00:00"; return`${String(Math.floor(Math.abs(m)/60)).padStart(2,"0")}:${String(Math.abs(m)%60).padStart(2,"0")}`; }
@@ -318,11 +318,12 @@ router.get("/relatorio/horas", auth, async (req, res) => {
 
   try {
     // ── 1. Buscar turnos de escala no período ──────────────────
-    const turnoFilters = ["et.turno_date BETWEEN $1 AND $2","et.funcionario_id IS NOT NULL"];
-    const turnoParams  = [di, df];
-    let i = 3;
+    const turnoFilters = ["et.funcionario_id IS NOT NULL"];
+    const turnoParams  = [];
+    let i = 1;
+    if (di && df) { turnoFilters.push(`et.turno_date BETWEEN $${i++} AND $${i++}`); turnoParams.push(di, df); }
     if (funcionarioId) { turnoFilters.push(`et.funcionario_id = $${i++}`); turnoParams.push(funcionarioId); }
-    if (teamId)        { turnoFilters.push(`ei.team_id        = $${i++}`); turnoParams.push(teamId); }
+    if (teamIds.length > 0) { turnoFilters.push(`ei.team_id = ANY($${i++}::uuid[])`); turnoParams.push(teamIds); }
     if (companyId)     { turnoFilters.push(`e.company_id      = $${i++}`); turnoParams.push(companyId); }
 
     const turnosResult = await pool.query(
@@ -343,17 +344,18 @@ router.get("/relatorio/horas", auth, async (req, res) => {
          JOIN funcionarios       fn ON fn.id = et.funcionario_id
          JOIN equipe_itens       ei ON ei.funcionario_id = et.funcionario_id
          JOIN teams              t  ON t.id  = ei.team_id
-        WHERE ${turnoFilters.join(" AND ")}
+        WHERE ${turnoFilters.length ? turnoFilters.join(" AND ") : "1=1"}
         ORDER BY t.name, fn.nome, et.turno_date, et.turno`,
       turnoParams
     );
 
     // ── 2. Buscar extras avulsos no período ────────────────────
-    const avulsoFilters = ["ea.data BETWEEN $1 AND $2"];
-    const avulsoParams  = [di, df];
-    let j = 3;
+    const avulsoFilters = [];
+    const avulsoParams  = [];
+    let j = 1;
+    if (di && df) { avulsoFilters.push(`ea.data BETWEEN $${j++} AND $${j++}`); avulsoParams.push(di, df); }
     if (funcionarioId) { avulsoFilters.push(`ea.funcionario_id = $${j++}`); avulsoParams.push(funcionarioId); }
-    if (teamId)        { avulsoFilters.push(`ea.team_id        = $${j++}`); avulsoParams.push(teamId); }
+    if (teamIds.length > 0) { avulsoFilters.push(`ea.team_id = ANY($${j++}::uuid[])`); avulsoParams.push(teamIds); }
     if (companyId)     { avulsoFilters.push(`ea.company_id     = $${j++}`); avulsoParams.push(companyId); }
 
     const avulsosResult = await pool.query(
@@ -366,7 +368,7 @@ router.get("/relatorio/horas", auth, async (req, res) => {
          FROM extra_avulso ea
          JOIN funcionarios fn ON fn.id = ea.funcionario_id
          JOIN teams        t  ON t.id  = ea.team_id
-        WHERE ${avulsoFilters.join(" AND ")}`,
+        WHERE ${avulsoFilters.length ? avulsoFilters.join(" AND ") : "1=1"}`,
       avulsoParams
     );
 
