@@ -36,7 +36,7 @@ SELECT DISTINCT
     f.BAIRRO,
     f.CIDADE,
     f.ESTADO,
-    cc.CODCCUSTO + ' - ' + cc.NOME AS NOME_CENTRO_CUSTO,
+    cc.CODCCUSTO COLLATE DATABASE_DEFAULT + ' - ' + cc.NOME COLLATE DATABASE_DEFAULT AS NOME_CENTRO_CUSTO,
     fc.NOME AS NOME_FUNCAO,
     c.NOME AS NOME_COLIGADA
 FROM Rm_fato_funcionarios f
@@ -54,7 +54,7 @@ WHERE f.CODSITUACAO <> 'D'
         OR NOT EXISTS (
             SELECT 1
             FROM Rm_fato_funcionarios f2
-            WHERE f2.NOME = f.NOME
+            WHERE f2.NOME COLLATE DATABASE_DEFAULT = f.NOME COLLATE DATABASE_DEFAULT
               AND f2.CODSITUACAO <> 'D'
               AND f2.CODCOLIGADA <> 4
         )
