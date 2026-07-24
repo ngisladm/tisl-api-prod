@@ -132,7 +132,7 @@ async function syncFuncionarios() {
       );
     }
 
-    const resumo = { total: rows.length, processados: deduped.length, erros: 0 };
+    const resumo = { total: rows.length, inseridos: deduped.length, atualizados: deduped.length, erros: 0 };
     console.log(`✅ Sync concluído:`, resumo);
     return resumo;
   } finally {
