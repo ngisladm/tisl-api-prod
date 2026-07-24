@@ -99,9 +99,14 @@ async function syncFuncionarios() {
       }))
       .filter(r => r.nome && r.matricula && r.coligada);
 
+    // Deduplica pelo par matricula+coligada (mantém último registro de cada par)
+    const deduped = Object.values(
+      records.reduce((acc, r) => { acc[`${r.matricula}||${r.coligada}`] = r; return acc; }, {})
+    );
+
     // Bulk upsert em lotes
-    for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-      const chunk = records.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
+      const chunk = deduped.slice(i, i + CHUNK_SIZE);
       const params = [];
       const values = chunk.map((r, idx) => {
         const b = idx * 13;
@@ -127,7 +132,7 @@ async function syncFuncionarios() {
       );
     }
 
-    const resumo = { total: rows.length, processados: records.length, erros: 0 };
+    const resumo = { total: rows.length, processados: deduped.length, erros: 0 };
     console.log(`✅ Sync concluído:`, resumo);
     return resumo;
   } finally {
