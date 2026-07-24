@@ -63,6 +63,8 @@ WHERE f.CODSITUACAO <> 'D'
 
 let syncEmAndamento = false;
 
+const CHUNK_SIZE = 500;
+
 async function syncFuncionarios() {
   if (syncEmAndamento) {
     console.log("⚠️  Sync já em andamento, ignorando chamada duplicada.");
@@ -77,74 +79,55 @@ async function syncFuncionarios() {
     const rows = result.recordset;
     console.log(`📋 ${rows.length} registro(s) recebido(s) do SQL Server.`);
 
-    let inseridos = 0, atualizados = 0, erros = 0;
-    const errosMsgs = [];
-
-    // Converte qualquer tipo para string segura, removendo bytes nulos e caracteres de controle
     const str = v => (v == null ? "" : String(v)).replace(/\0/g, "").trim();
 
-    for (const row of rows) {
-      try {
-        const nome      = str(row.NOME);
-        const matricula = str(row.CHAPA)         || null;
-        const coligada  = str(row.NOME_COLIGADA) || null;
-        if (!nome) continue;
+    const records = rows
+      .map(row => ({
+        nome:         str(row.NOME),
+        cpf:          str(row.CPF)               || null,
+        rg:           str(row.CARTIDENTIDADE)     || null,
+        logradouro:   str(row.LOGRADOURO)         || null,
+        numero:       str(row.NUMERO)             || null,
+        complemento:  str(row.COMPLEMENTO)        || null,
+        bairro:       str(row.BAIRRO)             || null,
+        cidade:       str(row.CIDADE)             || null,
+        estado:       str(row.ESTADO)             || null,
+        centro_custo: str(row.NOME_CENTRO_CUSTO)  || null,
+        cargo:        str(row.NOME_FUNCAO)         || null,
+        matricula:    str(row.CHAPA)              || null,
+        coligada:     str(row.NOME_COLIGADA)      || null,
+      }))
+      .filter(r => r.nome && r.matricula && r.coligada);
 
-        const params = [
-          nome,
-          str(row.CPF)             || null,
-          str(row.CARTIDENTIDADE)  || null,
-          str(row.LOGRADOURO)      || null,
-          str(row.NUMERO)          || null,
-          str(row.COMPLEMENTO)     || null,
-          str(row.BAIRRO)          || null,
-          str(row.CIDADE)          || null,
-          str(row.ESTADO)          || null,
-          str(row.NOME_CENTRO_CUSTO) || null,
-          str(row.NOME_FUNCAO)       || null,
-          matricula,
-          coligada,
-        ];
-
-        // Tenta localizar pelo par matricula+coligada
-        const check = await pool.query(
-          "SELECT id FROM funcionarios WHERE matricula=$1 AND coligada=$2",
-          [matricula, coligada]
+    // Bulk upsert em lotes
+    for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+      const chunk = records.slice(i, i + CHUNK_SIZE);
+      const params = [];
+      const values = chunk.map((r, idx) => {
+        const b = idx * 13;
+        params.push(
+          r.nome, r.cpf, r.rg, r.logradouro, r.numero, r.complemento,
+          r.bairro, r.cidade, r.estado, r.centro_custo, r.cargo, r.matricula, r.coligada
         );
+        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},'Ativo',NOW())`;
+      }).join(",");
 
-        if (check.rows.length > 0) {
-          await pool.query(
-            `UPDATE funcionarios SET
-               nome=$1, cpf=$2, rg=$3,
-               logradouro=$4, numero=$5, complemento=$6,
-               bairro=$7, cidade=$8, estado=$9,
-               centro_custo=$10, cargo=$11,
-               matricula=$12, coligada=$13,
-               situacao='Ativo', updated_at=NOW()
-             WHERE id=$14`,
-            [...params, check.rows[0].id]
-          );
-          atualizados++;
-        } else {
-          await pool.query(
-            `INSERT INTO funcionarios
-               (nome, cpf, rg, logradouro, numero, complemento,
-                bairro, cidade, estado, centro_custo, cargo,
-                matricula, coligada, situacao)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Ativo')`,
-            params
-          );
-          inseridos++;
-        }
-      } catch (rowErr) {
-        const msg = rowErr.message;
-        console.error("Erro ao processar linha:", row.NOME, msg);
-        if (errosMsgs.length < 5) errosMsgs.push(`[${row.NOME}] ${msg}`);
-        erros++;
-      }
+      await pool.query(
+        `INSERT INTO funcionarios
+           (nome,cpf,rg,logradouro,numero,complemento,bairro,cidade,estado,centro_custo,cargo,matricula,coligada,situacao,updated_at)
+         VALUES ${values}
+         ON CONFLICT (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL
+         DO UPDATE SET
+           nome=EXCLUDED.nome, cpf=EXCLUDED.cpf, rg=EXCLUDED.rg,
+           logradouro=EXCLUDED.logradouro, numero=EXCLUDED.numero, complemento=EXCLUDED.complemento,
+           bairro=EXCLUDED.bairro, cidade=EXCLUDED.cidade, estado=EXCLUDED.estado,
+           centro_custo=EXCLUDED.centro_custo, cargo=EXCLUDED.cargo,
+           situacao='Ativo', updated_at=NOW()`,
+        params
+      );
     }
 
-    const resumo = { total: rows.length, inseridos, atualizados, erros, errosMsgs };
+    const resumo = { total: rows.length, processados: records.length, erros: 0 };
     console.log(`✅ Sync concluído:`, resumo);
     return resumo;
   } finally {

@@ -829,6 +829,7 @@ pool.query("ALTER TABLE funcionarios ALTER COLUMN centro_custo TYPE VARCHAR(300)
 pool.query("ALTER TABLE funcionarios ALTER COLUMN cargo TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("CREATE UNIQUE INDEX IF NOT EXISTS funcionarios_mat_col_unique ON funcionarios (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL").catch(err => logger.error("[migration]", err.message));
 
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
