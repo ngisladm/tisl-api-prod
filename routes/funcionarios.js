@@ -41,6 +41,73 @@ router.get("/", auth, canAccess("s22"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar funcionários." }); }
 });
 
+router.post("/importacao", auth, canAccess("s22","insert"), async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: "Formato inválido." });
+
+  const str = v => (v == null ? "" : String(v)).trim();
+  const situacoesValidas = ["Ativo","Inativo","Afastado","Férias","Demitido"];
+
+  let inseridos = 0, ignorados = 0;
+  const erros = [];
+  const seenKeys = new Set();
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const nome      = str(r["Nome do Funcionário"]);
+    const matricula = str(r["Matrícula"])      || null;
+    const cpf       = str(r["CPF"])            || null;
+
+    if (!nome) { ignorados++; continue; }
+
+    // Deduplica dentro do próprio arquivo pela combinação cpf+matricula
+    const key = `${cpf||""}||${matricula||""}`;
+    if ((cpf || matricula) && seenKeys.has(key)) {
+      ignorados++;
+      erros.push({ linha: i + 2, msg: `Duplicata ignorada (CPF+Matrícula já apareceu antes no arquivo)` });
+      continue;
+    }
+    seenKeys.add(key);
+
+    const situacao = situacoesValidas.includes(str(r["Situação"])) ? str(r["Situação"]) : "Ativo";
+
+    try {
+      await pool.query(
+        `INSERT INTO funcionarios
+           (nome, matricula, centro_custo, cargo, cpf, rg, email, fone,
+            logradouro, numero, complemento, bairro, cidade, cep, estado,
+            situacao, coligada, observacao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+        [
+          nome,
+          matricula,
+          str(r["Centro de Custo"]) || null,
+          str(r["Cargo"])           || null,
+          cpf,
+          str(r["RG"])              || null,
+          str(r["E-mail"])          || null,
+          str(r["Fone"])            || null,
+          str(r["Logradouro"])      || null,
+          str(r["Número"])          || null,
+          str(r["Complemento"])     || null,
+          str(r["Bairro"])          || null,
+          str(r["Cidade"])          || null,
+          str(r["CEP"])             || null,
+          str(r["Estado"])          || null,
+          situacao,
+          str(r["Coligada"])        || null,
+          str(r["Observação"])      || null,
+        ]
+      );
+      inseridos++;
+    } catch (e) {
+      erros.push({ linha: i + 2, msg: e.message });
+    }
+  }
+
+  res.json({ inseridos, ignorados, erros });
+});
+
 router.post("/", auth, canAccess("s22","edit"), async (req, res) => {
   const f = req.body;
   if (!f.nome?.trim()) return res.status(400).json({ error: "Nome do funcionário é obrigatório." });
