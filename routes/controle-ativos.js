@@ -76,6 +76,42 @@ async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNo
 
 // ── Controle de Ativos (cabeçalho) ──────────────────────────
 
+router.post("/vincular-funcionarios", auth, canAccess("s21","edit"), async (req, res) => {
+  try {
+    // Busca registros sem vínculo
+    const semVinculo = await pool.query(
+      `SELECT id, nome_funcionario FROM controle_ativos WHERE funcionario_id IS NULL`
+    );
+    if (semVinculo.rows.length === 0) return res.json({ vinculados: 0, naoEncontrados: 0, semVinculo: 0 });
+
+    // Busca todos os funcionários
+    const funcs = await pool.query(`SELECT id, nome, cpf FROM funcionarios`);
+
+    // Monta mapa nome normalizado → funcionário
+    const mapaFuncs = {};
+    for (const f of funcs.rows) {
+      mapaFuncs[f.nome.trim().toLowerCase()] = f;
+    }
+
+    let vinculados = 0, naoEncontrados = 0;
+    for (const ca of semVinculo.rows) {
+      const chave = (ca.nome_funcionario || "").trim().toLowerCase();
+      const func = mapaFuncs[chave];
+      if (func) {
+        await pool.query(
+          `UPDATE controle_ativos SET funcionario_id=$1, cpf=$2, updated_at=NOW() WHERE id=$3`,
+          [func.id, func.cpf || "", ca.id]
+        );
+        vinculados++;
+      } else {
+        naoEncontrados++;
+      }
+    }
+
+    res.json({ vinculados, naoEncontrados, semVinculo: semVinculo.rows.length });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao vincular funcionários." }); }
+});
+
 router.get("/", auth, canAccess("s21"), async (req, res) => {
   try {
     const r = await pool.query(
