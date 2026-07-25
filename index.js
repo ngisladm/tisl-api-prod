@@ -47,6 +47,7 @@ const historicoMovimentacoesRoutes = require("./routes/historico-movimentacoes")
 const feriasRoutes                 = require("./routes/ferias");
 const folgasRoutes                 = require("./routes/folgas");
 const politicasRoutes              = require("./routes/politicas");
+const indicadoresRoutes            = require("./routes/indicadores");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -831,6 +832,45 @@ pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catc
 pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 pool.query("CREATE UNIQUE INDEX IF NOT EXISTS funcionarios_mat_col_unique ON funcionarios (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL").catch(err => logger.error("[migration]", err.message));
 
+// Gestão de Equipe — Atribuições e Indicadores (s58-s61)
+migrate("ALTER TABLE teams ADD COLUMN IF NOT EXISTS atribuicoes TEXT");
+migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS papel VARCHAR(150)");
+migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS atribuicoes TEXT");
+migrate(`CREATE TABLE IF NOT EXISTS indicadores (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id        UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  nome           VARCHAR(200) NOT NULL,
+  unidade        VARCHAR(50),
+  meta           NUMERIC,
+  periodicidade  VARCHAR(20) NOT NULL DEFAULT 'Mensal',
+  origem         VARCHAR(20) NOT NULL DEFAULT 'Manual',
+  ativo          BOOLEAN DEFAULT TRUE,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("ALTER TABLE indicadores ADD COLUMN IF NOT EXISTS direcao VARCHAR(10) NOT NULL DEFAULT 'Maior'");
+migrate("ALTER TABLE indicadores ADD COLUMN IF NOT EXISTS limite_maximo NUMERIC");
+migrate(`CREATE TABLE IF NOT EXISTS indicador_lancamentos (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  indicador_id       UUID NOT NULL REFERENCES indicadores(id) ON DELETE CASCADE,
+  data_referencia    DATE NOT NULL,
+  valor_realizado    NUMERIC NOT NULL,
+  observacao         TEXT,
+  created_at         TIMESTAMPTZ DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (indicador_id, data_referencia)
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s58','Indicadores','Cadastros') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s59','Lançamento de Indicador','Movimentações') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s60','Painel de Indicadores','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s61','Papéis e Responsabilidades','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s62','Comparativo de Indicadores','Relatórios') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s58":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's58')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s59":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's59')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s60":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's60')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s61":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's61')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s62":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's62')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -874,6 +914,7 @@ app.use("/consumo-entrega",       consumoEntregaRoutes);
 app.use("/consumo-recebimento",   consumoRecebimentoRoutes);
 app.use("/manutencao-registros",  manutencaoRegistrosRoutes);
 app.use("/relatorio-consumo",     relatorioConsumoRoutes);
+app.use("/indicadores",           indicadoresRoutes);
 
 app.get("/health", (req, res) => res.json({ status: "ok", app: "SL TI API", ts: new Date().toISOString() }));
 app.get("/", (req, res) => res.json({ status: "ok", app: "SL TI API" }));

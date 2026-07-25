@@ -23,7 +23,7 @@ async function wouldCreateCycle(teamId, newParentId) {
 router.get("/", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.name, t.active,
+      `SELECT t.id, t.name, t.active, t.atribuicoes,
               t.parent_id AS "parentId",
               p.name      AS "parentName",
               COUNT(ei.id)::int AS "membros"
@@ -45,7 +45,7 @@ router.get("/relatorio-composicao", auth, async (req, res) => {
   try {
     const [teamsRes, itensRes] = await Promise.all([
       pool.query(
-        `SELECT t.id, t.name, t.active, t.parent_id AS "parentId"
+        `SELECT t.id, t.name, t.active, t.atribuicoes, t.parent_id AS "parentId"
            FROM teams t
           ORDER BY t.name`
       ),
@@ -53,7 +53,9 @@ router.get("/relatorio-composicao", auth, async (req, res) => {
         `SELECT ei.team_id AS "teamId",
                 fn.nome           AS "funcionarioNome",
                 fn.cargo,
-                fn.centro_custo   AS "centroCusto"
+                fn.centro_custo   AS "centroCusto",
+                ei.papel,
+                ei.atribuicoes    AS "atribuicoesFuncionario"
            FROM equipe_itens ei
            JOIN funcionarios fn ON fn.id = ei.funcionario_id
           ORDER BY fn.nome`
@@ -67,6 +69,8 @@ router.get("/relatorio-composicao", auth, async (req, res) => {
         funcionarioNome: row.funcionarioNome,
         cargo: row.cargo,
         centroCusto: row.centroCusto,
+        papel: row.papel,
+        atribuicoes: row.atribuicoesFuncionario,
       });
     }
 
@@ -102,12 +106,12 @@ router.get("/:id/users", auth, async (req, res) => {
 
 // POST /teams
 router.post("/", auth, async (req, res) => {
-  const { name, active = true, parentId } = req.body;
+  const { name, active = true, parentId, atribuicoes } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   try {
     const result = await pool.query(
-      "INSERT INTO teams (name, active, parent_id) VALUES ($1,$2,$3) RETURNING id, name, active, parent_id AS \"parentId\"",
-      [name.trim(), active, parentId || null]
+      "INSERT INTO teams (name, active, parent_id, atribuicoes) VALUES ($1,$2,$3,$4) RETURNING id, name, active, atribuicoes, parent_id AS \"parentId\"",
+      [name.trim(), active, parentId || null, atribuicoes || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -118,7 +122,7 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /teams/:id
 router.put("/:id", auth, async (req, res) => {
-  const { name, active, parentId } = req.body;
+  const { name, active, parentId, atribuicoes } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   const pid = parentId || null;
   if (pid === req.params.id)
@@ -127,8 +131,8 @@ router.put("/:id", auth, async (req, res) => {
     return res.status(400).json({ error: "Esta subordinação criaria um ciclo hierárquico." });
   try {
     const result = await pool.query(
-      "UPDATE teams SET name=$1, active=$2, parent_id=$3 WHERE id=$4 RETURNING id, name, active, parent_id AS \"parentId\"",
-      [name.trim(), active, pid, req.params.id]
+      "UPDATE teams SET name=$1, active=$2, parent_id=$3, atribuicoes=$4 WHERE id=$5 RETURNING id, name, active, atribuicoes, parent_id AS \"parentId\"",
+      [name.trim(), active, pid, atribuicoes || null, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Equipe não encontrada." });
     res.json(result.rows[0]);
@@ -165,7 +169,9 @@ router.get("/:id/itens", auth, async (req, res) => {
               ei.funcionario_id AS "funcionarioId",
               fn.nome           AS "funcionarioNome",
               fn.cargo,
-              fn.centro_custo   AS "centroCusto"
+              fn.centro_custo   AS "centroCusto",
+              ei.papel,
+              ei.atribuicoes
          FROM equipe_itens ei
          JOIN funcionarios fn ON fn.id = ei.funcionario_id
         WHERE ei.team_id = $1
@@ -181,15 +187,15 @@ router.get("/:id/itens", auth, async (req, res) => {
 
 // POST /teams/:id/itens
 router.post("/:id/itens", auth, async (req, res) => {
-  const { funcionarioId } = req.body;
+  const { funcionarioId, papel, atribuicoes } = req.body;
   if (!funcionarioId) return res.status(400).json({ error: "Funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `INSERT INTO equipe_itens (team_id, funcionario_id)
-       VALUES ($1, $2)
+      `INSERT INTO equipe_itens (team_id, funcionario_id, papel, atribuicoes)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (team_id, funcionario_id) DO NOTHING
        RETURNING id`,
-      [req.params.id, funcionarioId]
+      [req.params.id, funcionarioId, papel || null, atribuicoes || null]
     );
     if (!r.rows[0]) return res.status(409).json({ error: "Funcionário já está nesta equipe." });
     res.status(201).json(r.rows[0]);
@@ -199,16 +205,16 @@ router.post("/:id/itens", auth, async (req, res) => {
   }
 });
 
-// PUT /teams/:id/itens/:itemId  — troca o funcionário vinculado
+// PUT /teams/:id/itens/:itemId  — troca o funcionário vinculado e/ou papel/atribuições
 router.put("/:id/itens/:itemId", auth, async (req, res) => {
-  const { funcionarioId } = req.body;
+  const { funcionarioId, papel, atribuicoes } = req.body;
   if (!funcionarioId) return res.status(400).json({ error: "Funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `UPDATE equipe_itens SET funcionario_id = $1, updated_at = NOW()
-        WHERE id = $2 AND team_id = $3
+      `UPDATE equipe_itens SET funcionario_id = $1, papel = $2, atribuicoes = $3, updated_at = NOW()
+        WHERE id = $4 AND team_id = $5
        RETURNING id`,
-      [funcionarioId, req.params.itemId, req.params.id]
+      [funcionarioId, papel || null, atribuicoes || null, req.params.itemId, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
     res.json({ success: true });
