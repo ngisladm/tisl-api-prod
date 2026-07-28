@@ -170,6 +170,7 @@ router.get("/:id/itens", auth, async (req, res) => {
               fn.nome           AS "funcionarioNome",
               fn.cargo,
               fn.centro_custo   AS "centroCusto",
+              ei.missao,
               ei.papel,
               ei.atribuicoes
          FROM equipe_itens ei
@@ -187,15 +188,15 @@ router.get("/:id/itens", auth, async (req, res) => {
 
 // POST /teams/:id/itens
 router.post("/:id/itens", auth, async (req, res) => {
-  const { funcionarioId, papel, atribuicoes } = req.body;
+  const { funcionarioId, missao, papel, atribuicoes } = req.body;
   if (!funcionarioId) return res.status(400).json({ error: "Funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `INSERT INTO equipe_itens (team_id, funcionario_id, papel, atribuicoes)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO equipe_itens (team_id, funcionario_id, missao, papel, atribuicoes)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (team_id, funcionario_id) DO NOTHING
        RETURNING id`,
-      [req.params.id, funcionarioId, papel || null, atribuicoes || null]
+      [req.params.id, funcionarioId, missao || null, papel || null, atribuicoes || null]
     );
     if (!r.rows[0]) return res.status(409).json({ error: "Funcionário já está nesta equipe." });
     res.status(201).json(r.rows[0]);
@@ -207,14 +208,14 @@ router.post("/:id/itens", auth, async (req, res) => {
 
 // PUT /teams/:id/itens/:itemId  — troca o funcionário vinculado e/ou papel/atribuições
 router.put("/:id/itens/:itemId", auth, async (req, res) => {
-  const { funcionarioId, papel, atribuicoes } = req.body;
+  const { funcionarioId, missao, papel, atribuicoes } = req.body;
   if (!funcionarioId) return res.status(400).json({ error: "Funcionário é obrigatório." });
   try {
     const r = await pool.query(
-      `UPDATE equipe_itens SET funcionario_id = $1, papel = $2, atribuicoes = $3, updated_at = NOW()
-        WHERE id = $4 AND team_id = $5
+      `UPDATE equipe_itens SET funcionario_id = $1, missao = $2, papel = $3, atribuicoes = $4, updated_at = NOW()
+        WHERE id = $5 AND team_id = $6
        RETURNING id`,
-      [funcionarioId, papel || null, atribuicoes || null, req.params.itemId, req.params.id]
+      [funcionarioId, missao || null, papel || null, atribuicoes || null, req.params.itemId, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
     res.json({ success: true });
