@@ -835,6 +835,7 @@ pool.query("CREATE UNIQUE INDEX IF NOT EXISTS funcionarios_mat_col_unique ON fun
 // Gestão de Equipe — Atribuições e Indicadores (s58-s61)
 migrate("ALTER TABLE teams ADD COLUMN IF NOT EXISTS atribuicoes TEXT");
 migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS papel VARCHAR(150)");
+migrate("ALTER TABLE equipe_itens ALTER COLUMN papel TYPE TEXT");
 migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS atribuicoes TEXT");
 migrate(`CREATE TABLE IF NOT EXISTS indicadores (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
