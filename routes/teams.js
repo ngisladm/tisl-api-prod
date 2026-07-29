@@ -54,6 +54,7 @@ router.get("/relatorio-composicao", auth, async (req, res) => {
                 fn.nome           AS "funcionarioNome",
                 fn.cargo,
                 fn.centro_custo   AS "centroCusto",
+                ei.missao,
                 ei.papel,
                 ei.atribuicoes    AS "atribuicoesFuncionario"
            FROM equipe_itens ei
@@ -69,6 +70,7 @@ router.get("/relatorio-composicao", auth, async (req, res) => {
         funcionarioNome: row.funcionarioNome,
         cargo: row.cargo,
         centroCusto: row.centroCusto,
+        missao: row.missao,
         papel: row.papel,
         atribuicoes: row.atribuicoesFuncionario,
       });
