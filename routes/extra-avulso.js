@@ -6,6 +6,17 @@ const auth    = require("../middleware/auth");
 // GET /extra-avulso
 router.get("/", auth, async (req, res) => {
   try {
+    const reqUser = await pool.query("SELECT is_master, funcionario_id FROM users WHERE id=$1", [req.user.id]);
+    const isMaster = reqUser.rows[0]?.is_master;
+    const myFuncId = reqUser.rows[0]?.funcionario_id;
+
+    const params = [];
+    let where = "";
+    if (!isMaster) {
+      params.push(myFuncId);
+      where = "WHERE ea.funcionario_id = $1";
+    }
+
     const result = await pool.query(
       `SELECT ea.id,
               ea.company_id     AS "companyId",
@@ -23,7 +34,9 @@ router.get("/", auth, async (req, res) => {
          JOIN companies    c  ON c.id  = ea.company_id
          JOIN teams        t  ON t.id  = ea.team_id
          LEFT JOIN funcionarios fn ON fn.id = ea.funcionario_id
-        ORDER BY ea.data DESC, fn.nome`
+        ${where}
+        ORDER BY ea.data DESC, fn.nome`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
