@@ -852,6 +852,7 @@ migrate(`CREATE TABLE IF NOT EXISTS indicadores (
 )`);
 migrate("ALTER TABLE indicadores ADD COLUMN IF NOT EXISTS direcao VARCHAR(10) NOT NULL DEFAULT 'Maior'");
 migrate("ALTER TABLE indicadores ADD COLUMN IF NOT EXISTS limite_maximo NUMERIC");
+migrate("ALTER TABLE indicadores ADD COLUMN IF NOT EXISTS observacao TEXT");
 migrate(`CREATE TABLE IF NOT EXISTS indicador_lancamentos (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   indicador_id       UUID NOT NULL REFERENCES indicadores(id) ON DELETE CASCADE,

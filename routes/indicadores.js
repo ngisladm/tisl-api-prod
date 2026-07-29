@@ -13,9 +13,12 @@ const parseDate = (str) => {
   return str;
 };
 
+// Campos numéricos opcionais chegam como "" quando o input fica vazio — Postgres rejeita "" numa coluna NUMERIC
+const numOrNull = (v) => (v === "" || v === undefined || v === null ? null : v);
+
 const INDICADOR_RETURNING = `
   RETURNING id, team_id AS "teamId", nome, unidade, meta,
-            periodicidade, origem, direcao, limite_maximo AS "limiteMaximo", ativo,
+            periodicidade, origem, direcao, limite_maximo AS "limiteMaximo", observacao, ativo,
             created_at AS "createdAt"`;
 
 // ── INDICADORES (catálogo) ──────────────────────────────────────
@@ -30,7 +33,7 @@ router.get("/", auth, canAccess("s58"), async (req, res) => {
     const r = await pool.query(
       `SELECT i.id, i.team_id AS "teamId", t.name AS "teamName",
               i.nome, i.unidade, i.meta, i.periodicidade, i.origem, i.direcao,
-              i.limite_maximo AS "limiteMaximo", i.ativo,
+              i.limite_maximo AS "limiteMaximo", i.observacao, i.ativo,
               i.created_at AS "createdAt"
          FROM indicadores i
          JOIN teams t ON t.id = i.team_id
@@ -46,16 +49,16 @@ router.get("/", auth, canAccess("s58"), async (req, res) => {
 });
 
 router.post("/", auth, canAccess("s58", "edit"), async (req, res) => {
-  const { teamId, nome, unidade, meta, periodicidade, origem, direcao, limiteMaximo, ativo = true } = req.body;
+  const { teamId, nome, unidade, meta, periodicidade, origem, direcao, limiteMaximo, observacao, ativo = true } = req.body;
   if (!teamId || !nome?.trim())
     return res.status(400).json({ error: "Equipe e Nome são obrigatórios." });
   try {
     const r = await pool.query(
-      `INSERT INTO indicadores (team_id, nome, unidade, meta, periodicidade, origem, direcao, limite_maximo, ativo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO indicadores (team_id, nome, unidade, meta, periodicidade, origem, direcao, limite_maximo, observacao, ativo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ${INDICADOR_RETURNING}`,
-      [teamId, nome.trim(), unidade || null, meta ?? null,
-       periodicidade || "Mensal", origem || "Manual", direcao || "Maior", limiteMaximo ?? null, ativo]
+      [teamId, nome.trim(), unidade || null, numOrNull(meta),
+       periodicidade || "Mensal", origem || "Manual", direcao || "Maior", numOrNull(limiteMaximo), observacao || null, ativo]
     );
     const row = r.rows[0];
     const t = await pool.query("SELECT name FROM teams WHERE id=$1", [teamId]);
@@ -68,19 +71,19 @@ router.post("/", auth, canAccess("s58", "edit"), async (req, res) => {
 });
 
 router.put("/:id", auth, canAccess("s58", "edit"), async (req, res) => {
-  const { teamId, nome, unidade, meta, periodicidade, origem, direcao, limiteMaximo, ativo } = req.body;
+  const { teamId, nome, unidade, meta, periodicidade, origem, direcao, limiteMaximo, observacao, ativo } = req.body;
   if (!teamId || !nome?.trim())
     return res.status(400).json({ error: "Equipe e Nome são obrigatórios." });
   try {
     const r = await pool.query(
       `UPDATE indicadores SET
          team_id=$1, nome=$2, unidade=$3, meta=$4, periodicidade=$5, origem=$6, direcao=$7,
-         limite_maximo=$8, ativo=$9,
+         limite_maximo=$8, observacao=$9, ativo=$10,
          updated_at=NOW()
-       WHERE id=$10
+       WHERE id=$11
        ${INDICADOR_RETURNING}`,
-      [teamId, nome.trim(), unidade || null, meta ?? null,
-       periodicidade || "Mensal", origem || "Manual", direcao || "Maior", limiteMaximo ?? null, ativo, req.params.id]
+      [teamId, nome.trim(), unidade || null, numOrNull(meta),
+       periodicidade || "Mensal", origem || "Manual", direcao || "Maior", numOrNull(limiteMaximo), observacao || null, ativo, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Indicador não encontrado." });
     const row = r.rows[0];
@@ -148,7 +151,7 @@ router.get("/lancamentos", auth, canAccess("s59"), async (req, res) => {
 
 router.post("/lancamentos", auth, canAccess("s59", "edit"), async (req, res) => {
   const { indicadorId, dataReferencia, valorRealizado, observacao } = req.body;
-  if (!indicadorId || !dataReferencia || valorRealizado == null)
+  if (!indicadorId || !dataReferencia || valorRealizado === null || valorRealizado === undefined || valorRealizado === "")
     return res.status(400).json({ error: "Indicador, Data de Referência e Valor Realizado são obrigatórios." });
   const dt = parseDate(dataReferencia);
   try {
@@ -171,7 +174,7 @@ router.post("/lancamentos", auth, canAccess("s59", "edit"), async (req, res) => 
 
 router.put("/lancamentos/:id", auth, canAccess("s59", "edit"), async (req, res) => {
   const { indicadorId, dataReferencia, valorRealizado, observacao } = req.body;
-  if (!indicadorId || !dataReferencia || valorRealizado == null)
+  if (!indicadorId || !dataReferencia || valorRealizado === null || valorRealizado === undefined || valorRealizado === "")
     return res.status(400).json({ error: "Indicador, Data de Referência e Valor Realizado são obrigatórios." });
   const dt = parseDate(dataReferencia);
   try {
@@ -280,7 +283,7 @@ router.get("/:id", auth, canAccess("s58"), async (req, res) => {
     const r = await pool.query(
       `SELECT i.id, i.team_id AS "teamId", t.name AS "teamName",
               i.nome, i.unidade, i.meta, i.periodicidade, i.origem, i.direcao,
-              i.limite_maximo AS "limiteMaximo", i.ativo,
+              i.limite_maximo AS "limiteMaximo", i.observacao, i.ativo,
               i.created_at AS "createdAt"
          FROM indicadores i
          JOIN teams t ON t.id = i.team_id
