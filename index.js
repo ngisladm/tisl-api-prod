@@ -48,6 +48,7 @@ const feriasRoutes                 = require("./routes/ferias");
 const folgasRoutes                 = require("./routes/folgas");
 const politicasRoutes              = require("./routes/politicas");
 const indicadoresRoutes            = require("./routes/indicadores");
+const avaliacoesRoutes              = require("./routes/avaliacoes");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -874,6 +875,60 @@ migrate(`UPDATE profiles SET permissions = permissions || '{"s60":{"view":true,"
 migrate(`UPDATE profiles SET permissions = permissions || '{"s61":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's61')`);
 migrate(`UPDATE profiles SET permissions = permissions || '{"s62":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's62')`);
 
+// Avaliações de equipe e Planos de Desenvolvimento Individual (PDI)
+migrate(`
+  CREATE TABLE IF NOT EXISTS avaliacoes (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    equipe_item_id  UUID NOT NULL REFERENCES equipe_itens(id) ON DELETE CASCADE,
+    data            DATE NOT NULL,
+    competencia     TEXT NOT NULL,
+    esperado        SMALLINT NOT NULL CHECK (esperado BETWEEN 1 AND 10),
+    atual           SMALLINT NOT NULL CHECK (atual BETWEEN 1 AND 10),
+    created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_avaliacoes_equipe_item ON avaliacoes(equipe_item_id);
+
+  CREATE TABLE IF NOT EXISTS pdis (
+    id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    avaliacao_id               UUID NOT NULL REFERENCES avaliacoes(id) ON DELETE CASCADE,
+    objetivo                   TEXT NOT NULL,
+    justificativa              TEXT,
+    acao_desenvolvimento       TEXT,
+    prazo                      DATE NOT NULL,
+    responsavel_funcionario_id UUID NOT NULL REFERENCES funcionarios(id),
+    evidencia                  TEXT,
+    resultado_esperado         TEXT,
+    resultado_obtido           TEXT,
+    status                     VARCHAR(20) NOT NULL DEFAULT 'Não iniciado'
+                               CHECK (status IN ('Não iniciado','Em andamento','Concluído')),
+    created_by                 UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at                 TIMESTAMPTZ DEFAULT NOW(),
+    updated_at                 TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pdis_avaliacao ON pdis(avaliacao_id);
+
+  CREATE TABLE IF NOT EXISTS pdi_anexos (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pdi_id        UUID NOT NULL REFERENCES pdis(id) ON DELETE CASCADE,
+    nome_original VARCHAR(500) NOT NULL,
+    filename      VARCHAR(500) NOT NULL,
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pdi_anexos_pdi ON pdi_anexos(pdi_id);
+`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s63','Avaliação','Movimentações') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s64','PDI','Movimentações') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s65','PDI','Relatórios') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s63":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's63')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s64":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's64')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s65":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's65')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -900,6 +955,7 @@ app.use("/historico-movimentacoes", historicoMovimentacoesRoutes);
 app.use("/ferias",                 feriasRoutes);
 app.use("/folgas",                 folgasRoutes);
 app.use("/politicas",              politicasRoutes);
+app.use("/avaliacoes",             avaliacoesRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 app.use("/inventory-config",    inventoryConfigRoutes);

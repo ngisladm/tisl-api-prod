@@ -71,8 +71,10 @@ router.get("/basic", auth, async (req, res) => {
                 (SELECT ei.team_id FROM equipe_itens ei WHERE ei.funcionario_id = u.funcionario_id LIMIT 1),
                 u.team_id
               ) AS "teamId",
-              u.funcionario_id AS "funcionarioId"
+              u.funcionario_id AS "funcionarioId",
+              fn.nome AS "funcionarioNome"
          FROM users u
+         LEFT JOIN funcionarios fn ON fn.id = u.funcionario_id
         WHERE u.active = true
         ORDER BY u.name`
     );

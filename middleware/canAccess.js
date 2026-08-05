@@ -46,4 +46,43 @@ function canAccess(screenId, action = "view") {
   };
 }
 
-module.exports = { canAccess, invalidateCache };
+// Verifica uma permissão específica. Mantida separada de canAccess para não
+// alterar o comportamento legado das rotas que usam "edit" como permissão
+// genérica de escrita.
+function canAccessExact(screenId, action) {
+  return async (req, res, next) => {
+    try {
+      if (req.user.isMaster) return next();
+
+      const permissions = await getPermissions(req.user.profileId);
+      const screen = permissions[screenId];
+      if (!screen?.view || !screen?.[action]) {
+        return res.status(403).json({ error: "Você não tem permissão para esta operação." });
+      }
+      next();
+    } catch (err) {
+      console.error("[canAccessExact]", err.message);
+      res.status(500).json({ error: "Erro ao verificar permissões." });
+    }
+  };
+}
+
+function canAccessAny(screenId, actions) {
+  return async (req, res, next) => {
+    try {
+      if (req.user.isMaster) return next();
+
+      const permissions = await getPermissions(req.user.profileId);
+      const screen = permissions[screenId];
+      if (!screen?.view || !actions.some(action => screen?.[action])) {
+        return res.status(403).json({ error: "Você não tem permissão para esta operação." });
+      }
+      next();
+    } catch (err) {
+      console.error("[canAccessAny]", err.message);
+      res.status(500).json({ error: "Erro ao verificar permissões." });
+    }
+  };
+}
+
+module.exports = { canAccess, canAccessExact, canAccessAny, invalidateCache };
