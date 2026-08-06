@@ -2,6 +2,14 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodClosure");
+
+const parseDate = str => {
+  const parts = str.split("/");
+  if (parts.length !== 3) throw new Error(`Data inválida: ${str}`);
+  const [d,m,y] = parts;
+  return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
+};
 
 // GET /extra-avulso
 router.get("/", auth, async (req, res) => {
@@ -27,6 +35,7 @@ router.get("/", auth, async (req, res) => {
               TO_CHAR(ea.hora_inicio, 'HH24:MI')    AS "horaInicio",
               TO_CHAR(ea.hora_fim,    'HH24:MI')    AS "horaFim",
               ea.observacao,
+              EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='EXTRA_AVULSO' AND ea.data BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado",
               c.name  AS "companyName",
               t.name  AS "teamName",
               fn.nome AS "userName"
@@ -51,19 +60,14 @@ router.post("/", auth, async (req, res) => {
   if (!companyId || !teamId || !funcionarioId || !data || !horaInicio || !horaFim)
     return res.status(400).json({ error: "Todos os campos obrigatórios devem ser preenchidos." });
 
-  const parseDate = (str) => {
-    const parts = str.split("/");
-    if (parts.length !== 3) throw new Error(`Data inválida: ${str}`);
-    const [d, m, y] = parts;
-    return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
-  };
-
   try {
     const reqUser = await pool.query("SELECT is_master, funcionario_id FROM users WHERE id=$1", [req.user.id]);
     const isMaster = reqUser.rows[0]?.is_master;
     const myFuncId = reqUser.rows[0]?.funcionario_id;
     if (!isMaster && funcionarioId !== myFuncId)
       return res.status(403).json({ error: "Você não pode inserir lançamentos para outro funcionário." });
+    const parsedDate = parseDate(data);
+    if (await isDateClosed(SCREEN_KEYS.EXTRA_AVULSO, parsedDate)) return res.status(409).json({ error: CLOSED_MESSAGE });
 
     const result = await pool.query(
       `INSERT INTO extra_avulso (company_id, team_id, funcionario_id, data, hora_inicio, hora_fim, observacao, created_by)
@@ -77,7 +81,7 @@ router.post("/", auth, async (req, res) => {
                  TO_CHAR(hora_inicio, 'HH24:MI')    AS "horaInicio",
                  TO_CHAR(hora_fim,    'HH24:MI')    AS "horaFim",
                  observacao`,
-      [companyId, teamId, funcionarioId, parseDate(data), horaInicio, horaFim, observacao||null, req.user.id]
+      [companyId, teamId, funcionarioId, parsedDate, horaInicio, horaFim, observacao||null, req.user.id]
     );
     const row = result.rows[0];
     const company = await pool.query("SELECT name FROM companies WHERE id=$1",[companyId]);
@@ -103,20 +107,17 @@ router.put("/:id", auth, async (req, res) => {
     const reqUser = await pool.query("SELECT is_master, funcionario_id FROM users WHERE id=$1", [req.user.id]);
     const isMaster = reqUser.rows[0]?.is_master;
     const myFuncId = reqUser.rows[0]?.funcionario_id;
+    const rec = await pool.query("SELECT funcionario_id, data FROM extra_avulso WHERE id=$1", [req.params.id]);
+    if (!rec.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
     if (!isMaster) {
-      const rec = await pool.query("SELECT funcionario_id FROM extra_avulso WHERE id=$1", [req.params.id]);
-      if (!rec.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
       if (rec.rows[0].funcionario_id !== myFuncId)
         return res.status(403).json({ error: "Você só pode editar seus próprios lançamentos." });
     }
+    if (await isDateClosed(SCREEN_KEYS.EXTRA_AVULSO, rec.rows[0].data) || await isDateClosed(SCREEN_KEYS.EXTRA_AVULSO, parseDate(data)))
+      return res.status(409).json({ error: CLOSED_MESSAGE });
   } catch(err) {
     return res.status(500).json({ error: "Erro ao verificar permissão." });
   }
-
-  const parseDate = (str) => {
-    const [d,m,y] = str.split("/");
-    return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
-  };
 
   try {
     const result = await pool.query(
@@ -157,11 +158,14 @@ router.delete("/:id", auth, async (req, res) => {
     const isMaster = reqUser.rows[0]?.is_master;
     const myFuncId = reqUser.rows[0]?.funcionario_id;
     if (!isMaster) {
-      const rec = await pool.query("SELECT funcionario_id FROM extra_avulso WHERE id=$1", [req.params.id]);
+      const rec = await pool.query("SELECT funcionario_id, data FROM extra_avulso WHERE id=$1", [req.params.id]);
       if (!rec.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
       if (rec.rows[0].funcionario_id !== myFuncId)
         return res.status(403).json({ error: "Você só pode excluir seus próprios lançamentos." });
     }
+    const recDate = await pool.query("SELECT data FROM extra_avulso WHERE id=$1", [req.params.id]);
+    if (!recDate.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.EXTRA_AVULSO, recDate.rows[0].data)) return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query("DELETE FROM extra_avulso WHERE id=$1",[req.params.id]);
     res.json({ success: true });
   } catch (err) {

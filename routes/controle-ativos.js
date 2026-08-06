@@ -2,7 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
-const { canAccess } = require("../middleware/canAccess");
+const { canAccess, canAccessAnyScreen } = require("../middleware/canAccess");
 
 // Registra snapshot do item no histórico de movimentações
 async function logHistorico(controleAtivoId, itemId, tipoMovimentacao, usuarioNome, funcionarioDestinoNome) {
@@ -198,7 +198,7 @@ router.get("/itens/all", auth, canAccess("s21"), async (req, res) => {
 });
 
 // Retorna todos os itens com info completa para relatórios
-router.get("/itens/relatorio", auth, canAccess("s21"), async (req, res) => {
+router.get("/itens/relatorio", auth, canAccessAnyScreen(["s21", "s26", "s27"]), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ca.nome_funcionario AS "nomeFuncionario", ca.cpf, ca.funcionario_id AS "funcionarioId",

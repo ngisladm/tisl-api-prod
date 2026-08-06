@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodClosure");
 
 // GET /folgas
 router.get("/", auth, async (req, res) => {
@@ -21,7 +22,8 @@ router.get("/", auth, async (req, res) => {
               f.funcionario_id AS "funcionarioId", fn.nome AS "funcionarioNome",
               f.data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
-              f.total_horas AS "totalHoras", f.compensado, f.observacao
+              f.total_horas AS "totalHoras", f.compensado, f.observacao,
+              EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='CONTROLE_FOLGAS' AND f.data BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado"
          FROM folgas f
          JOIN companies  e  ON e.id  = f.empresa_id
          JOIN teams      eq ON eq.id = f.equipe_id
@@ -40,6 +42,7 @@ router.post("/", auth, async (req, res) => {
   if (!empresaId || !equipeId || !funcionarioId || !data || !horaInicio || !horaFim)
     return res.status(400).json({ error: "Campos obrigatórios não preenchidos." });
   try {
+    if (await isDateClosed(SCREEN_KEYS.FOLGAS, data)) return res.status(409).json({ error: CLOSED_MESSAGE });
     const r = await pool.query(
       `INSERT INTO folgas (empresa_id,equipe_id,funcionario_id,data,hora_inicio,hora_fim,total_horas,compensado,observacao)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
@@ -55,6 +58,10 @@ router.put("/:id", auth, async (req, res) => {
   if (!empresaId || !equipeId || !funcionarioId || !data || !horaInicio || !horaFim)
     return res.status(400).json({ error: "Campos obrigatórios não preenchidos." });
   try {
+    const existing = await pool.query("SELECT data FROM folgas WHERE id=$1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.FOLGAS, existing.rows[0].data) || await isDateClosed(SCREEN_KEYS.FOLGAS, data))
+      return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query(
       `UPDATE folgas SET empresa_id=$1,equipe_id=$2,funcionario_id=$3,data=$4,
        hora_inicio=$5,hora_fim=$6,total_horas=$7,compensado=$8,observacao=$9 WHERE id=$10`,
@@ -67,6 +74,9 @@ router.put("/:id", auth, async (req, res) => {
 // DELETE /folgas/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
+    const existing = await pool.query("SELECT data FROM folgas WHERE id=$1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.FOLGAS, existing.rows[0].data)) return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query("DELETE FROM folgas WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir folga." }); }

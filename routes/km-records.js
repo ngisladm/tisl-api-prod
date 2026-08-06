@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodClosure");
 
 const parseDate = (str) => {
   if (!str) return null;
@@ -24,6 +25,7 @@ const BASE_SELECT = `
          kr.valor_km                   AS "valorKm",
          kr.valor_total_km             AS "valorTotalKm",
          kr.justificativa,
+         EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='REGISTRO_KM' AND kr.data BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado",
          c.name  AS "companyName",
          t.name  AS "teamName",
          fn.nome AS "userName",
@@ -62,7 +64,24 @@ router.get("/report", auth, async (req, res) => {
 // GET /km-records
 router.get("/", auth, async (req, res) => {
   try {
-    const r = await pool.query(`${BASE_SELECT} ORDER BY kr.data DESC, fn.nome`);
+    const reqUser = await pool.query(
+      "SELECT is_master, funcionario_id FROM users WHERE id=$1",
+      [req.user.id]
+    );
+    const isMaster = reqUser.rows[0]?.is_master;
+    const funcionarioId = reqUser.rows[0]?.funcionario_id;
+    const params = [];
+    let where = "";
+
+    if (!isMaster) {
+      params.push(funcionarioId);
+      where = "WHERE kr.funcionario_id=$1";
+    }
+
+    const r = await pool.query(
+      `${BASE_SELECT} ${where} ORDER BY kr.data DESC, fn.nome`,
+      params
+    );
     res.json(r.rows);
   } catch (err) {
     console.error(err);
@@ -83,6 +102,7 @@ router.post("/", auth, async (req, res) => {
     return res.status(403).json({ error: "Você não pode inserir lançamentos para outro funcionário." });
 
   const dt = parseDate(data);
+  if (await isDateClosed(SCREEN_KEYS.REGISTRO_KM, dt)) return res.status(409).json({ error: CLOSED_MESSAGE });
   const tk = parseFloat(totalKm);
 
   const vkr = await pool.query(
@@ -127,6 +147,10 @@ router.put("/:id", auth, async (req, res) => {
     return res.status(400).json({ error: "Preencha todos os campos obrigatórios." });
 
   const dt = parseDate(data);
+  const existing = await pool.query("SELECT data FROM km_records WHERE id=$1", [req.params.id]);
+  if (!existing.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
+  if (await isDateClosed(SCREEN_KEYS.REGISTRO_KM, existing.rows[0].data) || await isDateClosed(SCREEN_KEYS.REGISTRO_KM, dt))
+    return res.status(409).json({ error: CLOSED_MESSAGE });
   const tk = parseFloat(totalKm);
 
   const vkr = await pool.query(
@@ -161,12 +185,15 @@ router.delete("/:id", auth, async (req, res) => {
   const isMaster = reqUser.rows[0]?.is_master;
   const myFuncId = reqUser.rows[0]?.funcionario_id;
   if (!isMaster) {
-    const rec = await pool.query("SELECT funcionario_id FROM km_records WHERE id=$1", [req.params.id]);
+    const rec = await pool.query("SELECT funcionario_id, data FROM km_records WHERE id=$1", [req.params.id]);
     if (!rec.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
     if (rec.rows[0].funcionario_id !== myFuncId)
       return res.status(403).json({ error: "Você só pode excluir seus próprios lançamentos." });
   }
   try {
+    const rec = await pool.query("SELECT data FROM km_records WHERE id=$1", [req.params.id]);
+    if (!rec.rows[0]) return res.status(404).json({ error: "Registro não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.REGISTRO_KM, rec.rows[0].data)) return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query("DELETE FROM km_records WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {

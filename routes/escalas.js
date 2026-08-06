@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
+const { CLOSED_MESSAGE, isEscalaClosed, hasClosedEscalaForTeamsAndPeriod } = require("../utils/periodClosure");
 
 // ── Helpers ──────────────────────────────────────────────────
 function toMinutes(timeStr) {
@@ -35,7 +36,8 @@ async function fetchEscala(id) {
             c.name AS "companyName",
             COALESCE(ARRAY_AGG(t.id   ORDER BY t.name) FILTER (WHERE t.id   IS NOT NULL), '{}') AS "teamIds",
             COALESCE(ARRAY_AGG(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS "teamNames",
-            COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr"
+            COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr",
+            EXISTS(SELECT 1 FROM period_closures pc WHERE pc.escala_id=e.id) AS "periodoFechado"
        FROM escalas e
        LEFT JOIN companies     c  ON c.id  = e.company_id
        LEFT JOIN escala_equipes ee ON ee.escala_id = e.id
@@ -57,7 +59,8 @@ router.get("/", auth, async (req, res) => {
               c.name AS "companyName",
               COALESCE(ARRAY_AGG(t.id   ORDER BY t.name) FILTER (WHERE t.id   IS NOT NULL), '{}') AS "teamIds",
               COALESCE(ARRAY_AGG(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS "teamNames",
-              COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr"
+              COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr",
+              EXISTS(SELECT 1 FROM period_closures pc WHERE pc.escala_id=e.id) AS "periodoFechado"
          FROM escalas e
          LEFT JOIN companies      c  ON c.id  = e.company_id
          LEFT JOIN escala_equipes ee ON ee.escala_id = e.id
@@ -92,6 +95,8 @@ router.post("/", auth, async (req, res) => {
 
     if (new Date(di) > new Date(df))
       return res.status(400).json({ error: "A data inicial não pode ser maior que a data final." });
+    if (await hasClosedEscalaForTeamsAndPeriod(teamIds, di, df))
+      return res.status(409).json({ error: CLOSED_MESSAGE });
 
     const result = await pool.query(
       `INSERT INTO escalas (company_id, data_inicio, data_fim)
@@ -123,11 +128,15 @@ router.put("/:id", auth, async (req, res) => {
   const parseDate = (str) => { const [d,m,y] = str.split("/"); return `${y}-${m}-${d}`; };
 
   try {
+    if (await isEscalaClosed(req.params.id)) return res.status(409).json({ error: CLOSED_MESSAGE });
+    const di = parseDate(dataInicio), df = parseDate(dataFim);
+    if (await hasClosedEscalaForTeamsAndPeriod(teamIds, di, df, req.params.id))
+      return res.status(409).json({ error: CLOSED_MESSAGE });
     const r = await pool.query(
       `UPDATE escalas SET company_id=$1, data_inicio=$2, data_fim=$3
         WHERE id=$4
        RETURNING id`,
-      [companyId, parseDate(dataInicio), parseDate(dataFim), req.params.id]
+      [companyId, di, df, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Escala não encontrada." });
     await pool.query("DELETE FROM escala_equipes WHERE escala_id=$1", [req.params.id]);
@@ -148,6 +157,7 @@ router.put("/:id", auth, async (req, res) => {
 // DELETE /escalas/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
+    if (await isEscalaClosed(req.params.id)) return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query("DELETE FROM escala_turnos WHERE escala_id=$1",[req.params.id]);
     await pool.query("DELETE FROM escalas WHERE id=$1",[req.params.id]);
     res.json({ success: true });
@@ -207,6 +217,7 @@ router.post("/:id/turnos", auth, async (req, res) => {
   const { turnoDate, turno, funcionarioId } = req.body;
   if (!turnoDate || !turno) return res.status(400).json({ error: "turnoDate e turno são obrigatórios." });
   try {
+    if (await isEscalaClosed(req.params.id)) return res.status(409).json({ error: CLOSED_MESSAGE });
     if (!funcionarioId) {
       await pool.query(
         "DELETE FROM escala_turnos WHERE escala_id=$1 AND turno_date=$2 AND turno=$3",
@@ -245,6 +256,7 @@ router.post("/:id/turnos", auth, async (req, res) => {
 router.put("/:id/turnos/:turnoId", auth, async (req, res) => {
   const { isFeriado, horaInicio, horaFim, extraInicio, extraFim, observacao } = req.body;
   try {
+    if (await isEscalaClosed(req.params.id)) return res.status(409).json({ error: CLOSED_MESSAGE });
     const result = await pool.query(
       `UPDATE escala_turnos
           SET is_feriado   = $1,

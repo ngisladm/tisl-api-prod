@@ -49,6 +49,7 @@ const folgasRoutes                 = require("./routes/folgas");
 const politicasRoutes              = require("./routes/politicas");
 const indicadoresRoutes            = require("./routes/indicadores");
 const avaliacoesRoutes              = require("./routes/avaliacoes");
+const periodClosuresRoutes          = require("./routes/period-closures");
 const cron                    = require("node-cron");
 
 const pool = require("./db");
@@ -532,6 +533,17 @@ migrate(`CREATE TABLE IF NOT EXISTS equipe_itens (
 )`);
 // Funcionário vinculado ao usuário (1:1)
 migrate("ALTER TABLE users ADD COLUMN IF NOT EXISTS funcionario_id UUID UNIQUE REFERENCES funcionarios(id) ON DELETE SET NULL");
+migrate(`
+  CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, profile_id)
+  );
+  INSERT INTO user_profiles (user_id, profile_id)
+  SELECT id, profile_id FROM users WHERE profile_id IS NOT NULL
+  ON CONFLICT DO NOTHING;
+`);
 // Trocar user_id por funcionario_id nas tabelas de lançamento
 migrate("ALTER TABLE extra_avulso ADD COLUMN IF NOT EXISTS funcionario_id UUID REFERENCES funcionarios(id)");
 migrate("ALTER TABLE extra_avulso DROP COLUMN IF EXISTS user_id");
@@ -929,6 +941,24 @@ migrate(`UPDATE profiles SET permissions = permissions || '{"s63":{"view":true,"
 migrate(`UPDATE profiles SET permissions = permissions || '{"s64":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's64')`);
 migrate(`UPDATE profiles SET permissions = permissions || '{"s65":{"view":true,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's65')`);
 
+// Fechamento de Período (s66)
+migrate(`CREATE TABLE IF NOT EXISTS period_closures (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  screen_key VARCHAR(40) NOT NULL CHECK (screen_key IN ('SOBREAVISO_EXTRA','EXTRA_AVULSO','REGISTRO_KM','CONTROLE_FOLGAS','LANCAMENTO_INDICADOR')),
+  date_start DATE,
+  date_end DATE,
+  escala_id UUID REFERENCES escalas(id) ON DELETE RESTRICT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CHECK ((screen_key='SOBREAVISO_EXTRA' AND escala_id IS NOT NULL AND date_start IS NULL AND date_end IS NULL)
+      OR (screen_key<>'SOBREAVISO_EXTRA' AND escala_id IS NULL AND date_start IS NOT NULL AND date_end IS NOT NULL AND date_start<=date_end))
+);
+CREATE INDEX IF NOT EXISTS idx_period_closures_dates ON period_closures(screen_key,date_start,date_end);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_period_closures_escala ON period_closures(escala_id) WHERE escala_id IS NOT NULL;`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s66','Fechamento de Período','Cadastros') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s66":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's66')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -956,6 +986,7 @@ app.use("/ferias",                 feriasRoutes);
 app.use("/folgas",                 folgasRoutes);
 app.use("/politicas",              politicasRoutes);
 app.use("/avaliacoes",             avaliacoesRoutes);
+app.use("/period-closures",        periodClosuresRoutes);
 app.use("/email",             emailRoutes);
 app.use("/sync",              syncRoutes);
 app.use("/inventory-config",    inventoryConfigRoutes);

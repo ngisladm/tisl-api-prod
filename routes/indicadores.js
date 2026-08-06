@@ -2,7 +2,8 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
-const { canAccess } = require("../middleware/canAccess");
+const { canAccess, canAccessAnyScreen } = require("../middleware/canAccess");
+const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodClosure");
 
 const parseDate = (str) => {
   if (!str) return null;
@@ -45,6 +46,21 @@ router.get("/", auth, canAccess("s58"), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar indicadores." });
+  }
+});
+
+// GET /indicadores/report-options — opções mínimas dos filtros dos relatórios
+router.get("/report-options", auth, canAccessAnyScreen(["s60", "s62"]), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT i.id, i.team_id AS "teamId", i.nome, i.direcao, i.ativo
+         FROM indicadores i
+        ORDER BY i.nome`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar opções de indicadores." });
   }
 });
 
@@ -121,6 +137,7 @@ const LANCAMENTO_SELECT = `
          t.name AS "teamName",
          TO_CHAR(l.data_referencia,'DD/MM/YYYY') AS "dataReferencia",
          l.valor_realizado AS "valorRealizado", l.observacao,
+         EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='LANCAMENTO_INDICADOR' AND l.data_referencia BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado",
          l.created_at AS "createdAt"
     FROM indicador_lancamentos l
     JOIN indicadores i ON i.id = l.indicador_id
@@ -155,6 +172,7 @@ router.post("/lancamentos", auth, canAccess("s59", "edit"), async (req, res) => 
     return res.status(400).json({ error: "Indicador, Data de Referência e Valor Realizado são obrigatórios." });
   const dt = parseDate(dataReferencia);
   try {
+    if (await isDateClosed(SCREEN_KEYS.INDICADORES, dt)) return res.status(409).json({ error: CLOSED_MESSAGE });
     const r = await pool.query(
       `INSERT INTO indicador_lancamentos (indicador_id, data_referencia, valor_realizado, observacao)
        VALUES ($1,$2,$3,$4)
@@ -178,6 +196,10 @@ router.put("/lancamentos/:id", auth, canAccess("s59", "edit"), async (req, res) 
     return res.status(400).json({ error: "Indicador, Data de Referência e Valor Realizado são obrigatórios." });
   const dt = parseDate(dataReferencia);
   try {
+    const existing = await pool.query("SELECT data_referencia FROM indicador_lancamentos WHERE id=$1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: "Lançamento não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.INDICADORES, existing.rows[0].data_referencia) || await isDateClosed(SCREEN_KEYS.INDICADORES, dt))
+      return res.status(409).json({ error: CLOSED_MESSAGE });
     const r = await pool.query(
       `UPDATE indicador_lancamentos SET
          indicador_id=$1, data_referencia=$2, valor_realizado=$3, observacao=$4, updated_at=NOW()
@@ -198,6 +220,9 @@ router.put("/lancamentos/:id", auth, canAccess("s59", "edit"), async (req, res) 
 
 router.delete("/lancamentos/:id", auth, canAccess("s59", "edit"), async (req, res) => {
   try {
+    const existing = await pool.query("SELECT data_referencia FROM indicador_lancamentos WHERE id=$1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: "Lançamento não encontrado." });
+    if (await isDateClosed(SCREEN_KEYS.INDICADORES, existing.rows[0].data_referencia)) return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query("DELETE FROM indicador_lancamentos WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {

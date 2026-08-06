@@ -101,7 +101,7 @@ router.delete("/:id", auth, canAccess("s40", "delete"), async (req, res) => {
 });
 
 // GET /links/report
-router.get("/report", auth, async (req, res) => {
+router.get("/report", auth, canAccess("s43"), async (req, res) => {
   const { tipo, empresaContratanteId, cnpjContratante, filialId, ccusto, fornecedorId, status } = req.query;
   try {
     const where = [];

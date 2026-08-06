@@ -6,7 +6,7 @@ const { canAccess } = require("../middleware/canAccess");
 
 // ── Relatório de Firewall ────────────────────────────────────────
 
-router.get("/report", auth, async (req, res) => {
+router.get("/report", auth, canAccess("s42"), async (req, res) => {
   const { equipamento, filialId, modelo, numeroSerie, provedor, portas, status } = req.query;
   try {
     const fwWhere = [];
@@ -64,6 +64,21 @@ router.get("/report", auth, async (req, res) => {
 
     res.json(result);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao gerar relatório de firewall." }); }
+});
+
+// Opções mínimas para os filtros do relatório, sem depender da tela operacional.
+router.get("/report-options", auth, canAccess("s42"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT equipamento, modelo
+         FROM firewall
+        ORDER BY equipamento, modelo`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar opções do relatório de firewall." });
+  }
 });
 
 // ── Firewall ─────────────────────────────────────────────────────
