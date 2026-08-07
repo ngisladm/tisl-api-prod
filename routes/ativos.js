@@ -211,6 +211,8 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
          (l["Acessórios"]||"").trim()||null,
          imeiSlot1||null, imeiSlot2||null]
       );
+      await pool.query("INSERT INTO asset_names(name) VALUES ($1) ON CONFLICT DO NOTHING", [nome]);
+      if (marca) await pool.query("INSERT INTO asset_brands(name) VALUES ($1) ON CONFLICT DO NOTHING", [marca]);
       inseridos++;
     } catch (e) { console.error("[importar-ativos]", e.message); erros.push(`${nome}: ${e.message}`); }
   }

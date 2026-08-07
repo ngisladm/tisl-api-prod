@@ -24,6 +24,7 @@ const linhasFaturadasRoutes   = require("./routes/linhas-faturadas");
 const tipoAtivosRoutes        = require("./routes/tipo-ativos");
 const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
 const ativosRoutes            = require("./routes/ativos");
+const { assetNamesRouter, assetBrandsRouter } = require("./routes/asset-catalogs");
 const controleAtivosRoutes    = require("./routes/controle-ativos");
 const funcionariosRoutes      = require("./routes/funcionarios");
 const modelosContratoRoutes   = require("./routes/modelos-contrato");
@@ -960,6 +961,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_period_closures_escala ON period_closures(e
 migrate("INSERT INTO screens (id,name,module) VALUES ('s66','Fechamento de Período','Cadastros') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s66":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's66')`);
 
+// Catálogos de nomes e marcas de ativos (s67 e s68)
+migrate(`CREATE TABLE IF NOT EXISTS asset_names (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_asset_names_name_ci ON asset_names(LOWER(name));
+CREATE TABLE IF NOT EXISTS asset_brands (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_asset_brands_name_ci ON asset_brands(LOWER(name));
+INSERT INTO asset_names(name)
+  SELECT DISTINCT ON (LOWER(BTRIM(nome))) BTRIM(nome) FROM ativos
+   WHERE NULLIF(BTRIM(nome),'') IS NOT NULL ORDER BY LOWER(BTRIM(nome)), BTRIM(nome)
+  ON CONFLICT DO NOTHING;
+INSERT INTO asset_brands(name)
+  SELECT DISTINCT ON (LOWER(BTRIM(marca))) BTRIM(marca) FROM ativos
+   WHERE NULLIF(BTRIM(marca),'') IS NOT NULL ORDER BY LOWER(BTRIM(marca)), BTRIM(marca)
+  ON CONFLICT DO NOTHING;`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s67','Nomes de Ativos','Cadastros') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s68','Marcas de Ativos','Cadastros') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s67":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's67')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s68":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's68')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -978,6 +1007,8 @@ app.use("/linhas-faturadas",  linhasFaturadasRoutes);
 app.use("/tipo-ativos",       tipoAtivosRoutes);
 app.use("/linhas-disponiveis",linhasDisponiveisRoutes);
 app.use("/ativos",            ativosRoutes);
+app.use("/nomes-ativos",      assetNamesRouter);
+app.use("/marcas-ativos",     assetBrandsRouter);
 app.use("/controle-ativos",   controleAtivosRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
 app.use("/modelos-contrato",  modelosContratoRoutes);

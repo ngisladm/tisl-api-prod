@@ -174,6 +174,32 @@ router.delete("/:id", auth, canAccess("s21","edit"), async (req, res) => {
 
 // ── Itens de Controle de Ativos ───────────────────────────────
 
+// Dados completos do funcionário usados exclusivamente na geração do contrato.
+// Mantém endereço e documentos fora da rota /funcionarios/basic, que é acessível
+// por qualquer usuário autenticado.
+router.get("/:id/funcionario-contrato", auth, canAccess("s21"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT f.id, f.nome, f.matricula, f.centro_custo AS "centroCusto", f.cargo,
+              f.rg, f.cpf, f.logradouro, f.numero, f.complemento, f.bairro,
+              f.cep, f.cidade, f.estado, f.email, f.fone
+         FROM controle_ativos ca
+         JOIN funcionarios f ON f.id = ca.funcionario_id
+        WHERE ca.id = $1`,
+      [req.params.id]
+    );
+    if (!r.rows[0]) {
+      return res.status(404).json({
+        error: "O registro do Controle de Ativos não está vinculado a um funcionário cadastrado."
+      });
+    }
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar os dados do funcionário para o contrato." });
+  }
+});
+
 // Retorna todos os itens (resumido) para filtros na tela principal
 router.get("/itens/all", auth, canAccess("s21"), async (req, res) => {
   try {
