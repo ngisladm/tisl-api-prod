@@ -212,7 +212,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS funcionarios (
   bairro VARCHAR(100),
   cidade VARCHAR(100),
   estado VARCHAR(2),
-  cep VARCHAR(9),
+  cep VARCHAR(10),
   complemento VARCHAR(100),
   email VARCHAR(200),
   fone VARCHAR(20),
@@ -843,6 +843,7 @@ pool.query("ALTER TABLE funcionarios ALTER COLUMN centro_custo TYPE VARCHAR(300)
 pool.query("ALTER TABLE funcionarios ALTER COLUMN cargo TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
+pool.query("ALTER TABLE funcionarios ALTER COLUMN cep TYPE VARCHAR(10)").catch(err => logger.error("[migration]", err.message));
 pool.query("CREATE UNIQUE INDEX IF NOT EXISTS funcionarios_mat_col_unique ON funcionarios (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL").catch(err => logger.error("[migration]", err.message));
 
 // Gestão de Equipe — Atribuições e Indicadores (s58-s61)
