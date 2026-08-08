@@ -173,7 +173,18 @@ pool.query("INSERT INTO screens (id,name,module) VALUES ('s20','Ativos','Cadastr
 pool.query("INSERT INTO screens (id,name,module) VALUES ('s21','Controle de Ativos','Movimentações') ON CONFLICT DO NOTHING").catch(err => logger.error("[migration]", err.message));
 // Migração colunas itens_controle_ativos v4.1
 [
-  "ALTER TABLE itens_controle_ativos RENAME COLUMN imei TO imei_slot1",
+  `DO $$
+   BEGIN
+     IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='itens_controle_ativos' AND column_name='imei'
+     ) AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='itens_controle_ativos' AND column_name='imei_slot1'
+     ) THEN
+       ALTER TABLE itens_controle_ativos RENAME COLUMN imei TO imei_slot1;
+     END IF;
+   END $$`,
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS acesso VARCHAR(200)",
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS estrutura VARCHAR(200)",
   "ALTER TABLE itens_controle_ativos ADD COLUMN IF NOT EXISTS iccid VARCHAR(100)",
