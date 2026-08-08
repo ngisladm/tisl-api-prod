@@ -108,37 +108,119 @@ router.delete("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir ativo." }); }
 });
 
+// POST /ativos/:id/baixar — baixa direta de ativo em estoque, somente Master
+router.post("/:id/baixar", auth, async (req, res) => {
+  if (!req.user.isMaster)
+    return res.status(403).json({ error: "Apenas usuários Master podem baixar ativos diretamente." });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const aRes = await client.query(
+      `SELECT a.*, c.name AS company_name, ta.name AS tipo_ativo_name
+         FROM ativos a
+         LEFT JOIN companies c ON c.id=a.company_id
+         LEFT JOIN tipo_ativos ta ON ta.id=a.tipo_ativo_id
+        WHERE a.id=$1 FOR UPDATE OF a`,
+      [req.params.id]
+    );
+    const a = aRes.rows[0];
+    if (!a) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Ativo não encontrado." }); }
+    if ((a.status || "Em Estoque") !== "Em Estoque") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Somente ativos com status 'Em Estoque' podem ser baixados diretamente." });
+    }
+
+    const linked = await client.query("SELECT 1 FROM itens_controle_ativos WHERE ativo_id=$1 LIMIT 1", [req.params.id]);
+    if (linked.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Este ativo está vinculado no Controle de Ativos e não pode ser baixado diretamente." });
+    }
+    const maintenance = await client.query(
+      `SELECT 1 FROM manutencao_registros
+        WHERE ativo_id=$1 AND (status IS NULL OR status NOT IN ('Entregue','Revertido')) LIMIT 1`,
+      [req.params.id]
+    );
+    if (maintenance.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Este ativo possui uma manutenção em aberto. Finalize o ciclo pela tela Registros." });
+    }
+
+    await client.query(
+      `INSERT INTO historico_movimentacoes_ativos
+         (tipo_movimentacao, usuario_nome, company_name, tipo_ativo_name, ativo_nome,
+          marca, modelo, imei_slot1, imei_slot2, numero_serie, sistema_operacional,
+          versao, processador, memoria, hd, patrimonio, numero_documento, valor,
+          data_aquisicao, condicao, acessorios, status_ativo, ativo_id)
+       VALUES ('Baixa',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+      [req.user.name || "Sistema", a.company_name || null, a.tipo_ativo_name || null, a.nome,
+       a.marca || null, a.modelo || null, a.imei_slot1 || null, a.imei_slot2 || null,
+       a.numero_serie || null, a.sistema_operacional || null, a.versao || null,
+       a.processador || null, a.memoria || null, a.hd || null, a.patrimonio || null,
+       a.numero_documento || null, a.valor || null, a.data_aquisicao || null,
+       a.condicao || null, a.acessorios || null, a.status || "Em Estoque", a.id]
+    );
+    await client.query("UPDATE ativos SET status='Baixado', updated_at=NOW() WHERE id=$1", [req.params.id]);
+    await client.query("COMMIT");
+    res.json({ success: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: "Erro ao baixar ativo." });
+  } finally { client.release(); }
+});
+
 // POST /ativos/:id/reverter-baixa — somente Master
 router.post("/:id/reverter-baixa", auth, async (req, res) => {
   if (!req.user.isMaster)
     return res.status(403).json({ error: "Apenas usuários Master podem reverter baixas." });
+  const client = await pool.connect();
   try {
-    const aRes = await pool.query(
+    await client.query("BEGIN");
+    const aRes = await client.query(
       `SELECT a.nome, a.status,
               c.name  AS company_name,
               ta.name AS tipo_ativo_name
          FROM ativos a
          LEFT JOIN companies   c  ON c.id  = a.company_id
          LEFT JOIN tipo_ativos ta ON ta.id = a.tipo_ativo_id
-        WHERE a.id=$1`, [req.params.id]
+         WHERE a.id=$1 FOR UPDATE OF a`, [req.params.id]
     );
     const a = aRes.rows[0];
-    if (!a) return res.status(404).json({ error: "Ativo não encontrado." });
-    if (a.status !== "Baixado")
+    if (!a) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Ativo não encontrado." }); }
+    if (a.status !== "Baixado") {
+      await client.query("ROLLBACK");
       return res.status(400).json({ error: "Este ativo não está com status 'Baixado'." });
+    }
 
-    await pool.query(
+    await client.query(
       "UPDATE ativos SET status='Em Estoque', updated_at=NOW() WHERE id=$1",
       [req.params.id]
     );
-    await pool.query(
-      `INSERT INTO historico_movimentacoes_ativos
-         (tipo_movimentacao, ativo_nome, tipo_ativo_name, company_name, usuario_nome)
-       VALUES ($1,$2,$3,$4,$5)`,
-      ["Reversão de Baixa", a.nome, a.tipo_ativo_name || null, a.company_name || null, req.user.name || "Sistema"]
+    await client.query(
+      `UPDATE manutencao_itens SET status='Revertido', updated_at=NOW()
+        WHERE tipo='Solicitação de Baixa'
+          AND manutencao_id IN (
+            SELECT id FROM manutencao_registros WHERE ativo_id=$1 AND status='Condenado'
+          )`,
+      [req.params.id]
     );
+    await client.query(
+      "UPDATE manutencao_registros SET status='Revertido', updated_at=NOW() WHERE ativo_id=$1 AND status='Condenado'",
+      [req.params.id]
+    );
+    await client.query(
+      `INSERT INTO historico_movimentacoes_ativos
+         (tipo_movimentacao, ativo_nome, tipo_ativo_name, company_name, usuario_nome, ativo_id)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      ["Reversão de Baixa", a.nome, a.tipo_ativo_name || null, a.company_name || null, req.user.name || "Sistema", req.params.id]
+    );
+    await client.query("COMMIT");
     res.json({ success: true });
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." }); }
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err); res.status(500).json({ error: "Erro ao reverter baixa." });
+  } finally { client.release(); }
 });
 
 // Converte valor em formato brasileiro (1.709,90) para numérico

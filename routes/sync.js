@@ -64,8 +64,58 @@ WHERE f.CODSITUACAO <> 'D'
 let syncEmAndamento = false;
 
 const CHUNK_SIZE = 500;
+const syncEnabled = () => process.env.SYNC_FUNCIONARIOS_ENABLED === "true";
+
+const cleanText = value => (value == null ? "" : String(value))
+  .replace(/[\u200B-\u200D\uFEFF]/g, "")
+  .replace(/\0/g, "")
+  .normalize("NFKC")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const normalizeMatricula = value => {
+  const cleaned = cleanText(value);
+  if (!cleaned) return null;
+  if (/^\d+$/.test(cleaned)) return cleaned.replace(/^0+(?=\d)/, "");
+  return cleaned.toUpperCase();
+};
+
+const normalizeColigada = value => {
+  const cleaned = cleanText(value);
+  return cleaned ? cleaned.toUpperCase() : null;
+};
+
+const decodeBase64Text = value => {
+  const encoded = cleanText(value).replace(/\s/g, "");
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+  try {
+    const bytes = Buffer.from(encoded, "base64");
+    const decoded = bytes.toString("utf8").normalize("NFC").trim();
+    if (!decoded || decoded.includes("�")) return null;
+    const printable = [...decoded].filter(ch => !/[\u0000-\u001F\u007F]/.test(ch)).length;
+    if (printable / decoded.length < 0.95) return null;
+    if (bytes.toString("base64").replace(/=+$/, "") !== encoded.replace(/=+$/, "")) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeCentroCusto = value => {
+  const cleaned = cleanText(value);
+  if (!cleaned) return null;
+  const separator = cleaned.indexOf(" - ");
+  if (separator < 0) return cleaned.normalize("NFC");
+  const code = cleaned.slice(0, separator).trim();
+  const description = cleaned.slice(separator + 3).trim();
+  const decoded = decodeBase64Text(description);
+  return `${code} - ${decoded || description}`.normalize("NFC");
+};
 
 async function syncFuncionarios() {
+  if (!syncEnabled()) {
+    return { desabilitado: true, motivo: "Sincronização de funcionários desabilitada para manutenção." };
+  }
   if (syncEmAndamento) {
     console.log("⚠️  Sync já em andamento, ignorando chamada duplicada.");
     return { ignorado: true };
@@ -79,60 +129,72 @@ async function syncFuncionarios() {
     const rows = result.recordset;
     console.log(`📋 ${rows.length} registro(s) recebido(s) do SQL Server.`);
 
-    const str = v => (v == null ? "" : String(v)).replace(/\0/g, "").trim();
-
     const records = rows
       .map(row => ({
-        nome:         str(row.NOME),
-        cpf:          str(row.CPF)               || null,
-        rg:           str(row.CARTIDENTIDADE)     || null,
-        logradouro:   str(row.LOGRADOURO)         || null,
-        numero:       str(row.NUMERO)             || null,
-        complemento:  str(row.COMPLEMENTO)        || null,
-        bairro:       str(row.BAIRRO)             || null,
-        cidade:       str(row.CIDADE)             || null,
-        estado:       str(row.ESTADO)             || null,
-        centro_custo: str(row.NOME_CENTRO_CUSTO)  || null,
-        cargo:        str(row.NOME_FUNCAO)         || null,
-        matricula:    str(row.CHAPA)              || null,
-        coligada:     str(row.NOME_COLIGADA)      || null,
+        nome:                  cleanText(row.NOME),
+        cpf:                   cleanText(row.CPF)               || null,
+        rg:                    cleanText(row.CARTIDENTIDADE)     || null,
+        logradouro:            cleanText(row.LOGRADOURO)         || null,
+        numero:                cleanText(row.NUMERO)             || null,
+        complemento:           cleanText(row.COMPLEMENTO)        || null,
+        bairro:                cleanText(row.BAIRRO)              || null,
+        cidade:                cleanText(row.CIDADE)              || null,
+        estado:                cleanText(row.ESTADO)              || null,
+        centro_custo:          normalizeCentroCusto(row.NOME_CENTRO_CUSTO),
+        cargo:                 cleanText(row.NOME_FUNCAO)         || null,
+        matricula:             cleanText(row.CHAPA)               || null,
+        coligada:              cleanText(row.NOME_COLIGADA)       || null,
+        matricula_normalizada: normalizeMatricula(row.CHAPA),
+        coligada_normalizada:  normalizeColigada(row.NOME_COLIGADA),
       }))
-      .filter(r => r.nome && r.matricula && r.coligada);
+      .filter(r => r.nome && r.matricula_normalizada && r.coligada_normalizada);
 
-    // Deduplica pelo par matricula+coligada (mantém último registro de cada par)
+    // Deduplica pela chave canônica (mantém o último registro de cada par).
     const deduped = Object.values(
-      records.reduce((acc, r) => { acc[`${r.matricula}||${r.coligada}`] = r; return acc; }, {})
+      records.reduce((acc, r) => {
+        acc[`${r.matricula_normalizada}||${r.coligada_normalizada}`] = r;
+        return acc;
+      }, {})
     );
 
     // Bulk upsert em lotes
+    let inseridos = 0;
+    let atualizados = 0;
     for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
       const chunk = deduped.slice(i, i + CHUNK_SIZE);
       const params = [];
       const values = chunk.map((r, idx) => {
-        const b = idx * 13;
+        const b = idx * 15;
         params.push(
           r.nome, r.cpf, r.rg, r.logradouro, r.numero, r.complemento,
-          r.bairro, r.cidade, r.estado, r.centro_custo, r.cargo, r.matricula, r.coligada
+          r.bairro, r.cidade, r.estado, r.centro_custo, r.cargo, r.matricula, r.coligada,
+          r.matricula_normalizada, r.coligada_normalizada
         );
-        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},'Ativo',NOW())`;
+        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14},$${b+15},'Ativo',NOW())`;
       }).join(",");
 
-      await pool.query(
+      const saved = await pool.query(
         `INSERT INTO funcionarios
-           (nome,cpf,rg,logradouro,numero,complemento,bairro,cidade,estado,centro_custo,cargo,matricula,coligada,situacao,updated_at)
+           (nome,cpf,rg,logradouro,numero,complemento,bairro,cidade,estado,centro_custo,cargo,
+            matricula,coligada,matricula_normalizada,coligada_normalizada,situacao,updated_at)
          VALUES ${values}
-         ON CONFLICT (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL
+         ON CONFLICT (matricula_normalizada, coligada_normalizada)
+           WHERE matricula_normalizada IS NOT NULL AND coligada_normalizada IS NOT NULL
          DO UPDATE SET
            nome=EXCLUDED.nome, cpf=EXCLUDED.cpf, rg=EXCLUDED.rg,
            logradouro=EXCLUDED.logradouro, numero=EXCLUDED.numero, complemento=EXCLUDED.complemento,
            bairro=EXCLUDED.bairro, cidade=EXCLUDED.cidade, estado=EXCLUDED.estado,
            centro_custo=EXCLUDED.centro_custo, cargo=EXCLUDED.cargo,
-           situacao='Ativo', updated_at=NOW()`,
+           matricula=EXCLUDED.matricula, coligada=EXCLUDED.coligada,
+           situacao='Ativo', updated_at=NOW()
+         RETURNING (xmax=0) AS inserted`,
         params
       );
+      inseridos += saved.rows.filter(row => row.inserted).length;
+      atualizados += saved.rows.filter(row => !row.inserted).length;
     }
 
-    const resumo = { total: rows.length, inseridos: deduped.length, atualizados: deduped.length, erros: 0 };
+    const resumo = { total: rows.length, processados: deduped.length, inseridos, atualizados, erros: 0 };
     console.log(`✅ Sync concluído:`, resumo);
     return resumo;
   } finally {
@@ -143,6 +205,9 @@ async function syncFuncionarios() {
 
 // Endpoint para disparo manual (requer autenticação)
 router.post("/funcionarios", auth, async (req, res) => {
+  if (!syncEnabled()) {
+    return res.status(503).json({ error: "Sincronização de funcionários temporariamente desabilitada para manutenção." });
+  }
   try {
     const result = await syncFuncionarios();
     res.json({ success: true, ...result });
@@ -186,4 +251,10 @@ router.get("/teste", auth, async (req, res) => {
   }
 });
 
-module.exports = { router, syncFuncionarios };
+module.exports = {
+  router,
+  syncFuncionarios,
+  normalizeMatricula,
+  normalizeColigada,
+  normalizeCentroCusto,
+};

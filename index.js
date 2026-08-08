@@ -846,6 +846,29 @@ pool.query("ALTER TABLE funcionarios ALTER COLUMN numero TYPE VARCHAR(50)").catc
 pool.query("ALTER TABLE funcionarios ALTER COLUMN complemento TYPE VARCHAR(300)").catch(err => logger.error("[migration]", err.message));
 pool.query("ALTER TABLE funcionarios ALTER COLUMN cep TYPE VARCHAR(10)").catch(err => logger.error("[migration]", err.message));
 pool.query("CREATE UNIQUE INDEX IF NOT EXISTS funcionarios_mat_col_unique ON funcionarios (matricula, coligada) WHERE matricula IS NOT NULL AND coligada IS NOT NULL").catch(err => logger.error("[migration]", err.message));
+pool.query(`
+ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS matricula_normalizada VARCHAR(100);
+ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS coligada_normalizada VARCHAR(300);
+
+WITH normalized AS (
+  SELECT id,
+    CASE
+      WHEN REGEXP_REPLACE(BTRIM(matricula), '[​‌‍﻿]', '', 'g') ~ '^[0-9]+$'
+        THEN COALESCE(NULLIF(LTRIM(REGEXP_REPLACE(BTRIM(matricula), '[​‌‍﻿]', '', 'g'),'0'),''),'0')
+      ELSE UPPER(REGEXP_REPLACE(BTRIM(matricula), '[​‌‍﻿]', '', 'g'))
+    END AS matricula_normalizada,
+    UPPER(REGEXP_REPLACE(BTRIM(REGEXP_REPLACE(coligada, '[​‌‍﻿]', '', 'g')), '[[:space:]]+', ' ', 'g')) AS coligada_normalizada
+  FROM funcionarios WHERE matricula IS NOT NULL AND coligada IS NOT NULL
+)
+UPDATE funcionarios f SET matricula_normalizada=n.matricula_normalizada,
+  coligada_normalizada=n.coligada_normalizada
+FROM normalized n WHERE f.id=n.id AND
+  (f.matricula_normalizada IS DISTINCT FROM n.matricula_normalizada OR
+   f.coligada_normalizada IS DISTINCT FROM n.coligada_normalizada);
+
+CREATE INDEX IF NOT EXISTS idx_funcionarios_normalized_lookup
+  ON funcionarios(matricula_normalizada,coligada_normalizada);
+`).catch(err => logger.error("[migration funcionarios normalized]", err.message));
 
 // Gestão de Equipe — Atribuições e Indicadores (s58-s61)
 migrate("ALTER TABLE teams ADD COLUMN IF NOT EXISTS atribuicoes TEXT");
@@ -1049,9 +1072,14 @@ app.listen(PORT, () => {
   ).catch(err => logger.error("[startup] Erro ao resetar coletas travadas:", err.message));
 });
 
-// Sync automático de funcionários: 06:00 e 18:00 todos os dias
-cron.schedule("0 6,18 * * *", () => {
-  logger.info("Sync agendado de funcionários iniciado...");
-  syncFuncionarios().catch(err => logger.error("Erro no sync agendado:", err.message));
-}, { timezone: "America/Sao_Paulo" });
+// Sync automático de funcionários: desabilitado por padrão durante a consolidação.
+// Reativar explicitamente com SYNC_FUNCIONARIOS_ENABLED=true após a homologação.
+if (process.env.SYNC_FUNCIONARIOS_ENABLED === "true") {
+  cron.schedule("0 6,18 * * *", () => {
+    logger.info("Sync agendado de funcionários iniciado...");
+    syncFuncionarios().catch(err => logger.error("Erro no sync agendado:", err.message));
+  }, { timezone: "America/Sao_Paulo" });
+} else {
+  logger.warn("Sync de funcionários desabilitado (SYNC_FUNCIONARIOS_ENABLED != true).");
+}
 // test auto-deploy

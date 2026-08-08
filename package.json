@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "analyze:employee-duplicates": "node scripts/analyze-employee-duplicates.js",
+    "consolidate:employee-duplicates": "node scripts/consolidate-employee-duplicates.js",
+    "verify:employee-consolidation": "node scripts/verify-employee-consolidation.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
