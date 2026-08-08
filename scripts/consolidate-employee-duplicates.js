@@ -21,6 +21,20 @@ const safeTimestamp = date => date.toISOString().replace(/[:.]/g, "-");
 const syncFields = ["nome", "cpf", "rg", "logradouro", "numero", "complemento", "bairro", "cidade",
   "estado", "centro_custo", "cargo", "matricula", "coligada", "situacao"];
 const manualFields = ["cep", "email", "fone", "observacao"];
+const requiredReferences = [
+  "consumo_entrega.funcionario_id",
+  "controle_ativos.funcionario_id",
+  "equipe_itens.funcionario_id",
+  "escala_turnos.funcionario_id",
+  "extra_avulso.funcionario_id",
+  "ferias_equipe.funcionario_id",
+  "folgas.funcionario_id",
+  "km_records.funcionario_id",
+  "manutencao_itens.funcionario_id",
+  "manutencao_registros.funcionario_id",
+  "pdis.responsavel_funcionario_id",
+  "users.funcionario_id",
+];
 
 async function discoverForeignKeys(client) {
   const result = await client.query(`
@@ -132,7 +146,11 @@ async function main() {
     if (apply) await client.query("LOCK TABLE funcionarios IN SHARE ROW EXCLUSIVE MODE");
 
     const foreignKeys = await discoverForeignKeys(client);
-    if (foreignKeys.length !== 13) throw new Error(`Esperadas 13 referências a funcionários; encontradas ${foreignKeys.length}.`);
+    const discoveredReferences = new Set(foreignKeys.map(fk => `${fk.table_name}.${fk.column_name}`));
+    const missingReferences = requiredReferences.filter(reference => !discoveredReferences.has(reference));
+    if (missingReferences.length) {
+      throw new Error(`Referências obrigatórias ausentes: ${missingReferences.join(", ")}.`);
+    }
     const groups = await loadDuplicateGroups(client);
     const rowsInGroups = groups.reduce((total, group) => total+group.length, 0);
     if (apply && (groups.length !== expectedGroups || rowsInGroups !== expectedRows)) {
