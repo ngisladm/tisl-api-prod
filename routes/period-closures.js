@@ -44,9 +44,11 @@ router.get("/escalas-options", auth, canAccess("s66"), async (req,res) => {
   try {
     const r = await pool.query(`SELECT e.id,
       TO_CHAR(e.data_inicio,'DD/MM/YYYY') AS "dataInicio", TO_CHAR(e.data_fim,'DD/MM/YYYY') AS "dataFim",
-      COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr"
+      COALESCE(STRING_AGG(t.name, ', ' ORDER BY t.name),'') AS "teamNamesStr",
+      EXISTS(SELECT 1 FROM period_closures pc
+        WHERE pc.screen_key=$1 AND pc.escala_id=e.id) AS "periodoFechado"
       FROM escalas e LEFT JOIN escala_equipes ee ON ee.escala_id=e.id LEFT JOIN teams t ON t.id=ee.team_id
-      GROUP BY e.id ORDER BY e.data_inicio DESC, "teamNamesStr"`);
+      GROUP BY e.id ORDER BY e.data_inicio DESC, "teamNamesStr"`, [SCREEN_KEYS.ESCALAS]);
     res.json(r.rows);
   } catch (err) { console.error(err); res.status(500).json({error:"Erro ao buscar escalas."}); }
 });

@@ -120,7 +120,8 @@ router.get("/report", auth, canAccess("s43"), async (req, res) => {
               l.filial_id AS "filialId", nf.nome AS "filialNome",
               nf.logradouro, nf.numero AS "filialNumero", nf.bairro, nf.cidade, nf.estado, nf.cep, nf.complemento,
               l.empresa_contratante_id AS "empresaContratanteId", ec.name AS "empresaContratanteNome", ec.cnpj AS "cnpjContratante",
-              l.ccusto, l.fornecedor_id AS "fornecedorId", s.name AS "fornecedorNome", s.contact_phone AS "contato",
+              l.ccusto, l.vr_mensal AS "vrMensal",
+              l.fornecedor_id AS "fornecedorId", s.name AS "fornecedorNome", s.contact_phone AS "contato",
               l.velocidade, l.email_conta AS "emailConta", l.senha_conta AS "senhaConta",
               l.numero_serie AS "numeroSerie", l.numero_conta AS "numeroConta", l.status
          FROM links l
