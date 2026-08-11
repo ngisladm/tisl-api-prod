@@ -7,13 +7,15 @@ const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodCl
 // GET /folgas
 router.get("/", auth, async (req, res) => {
   try {
-    const { empresa, equipe, funcionario, data, compensado } = req.query;
+    const { empresa, equipe, funcionario, data, compensado, deveEmpresa } = req.query;
     const conds = [], params = [];
     if (empresa)     { params.push(empresa);     conds.push(`f.empresa_id=$${params.length}`); }
     if (equipe)      { params.push(equipe);       conds.push(`f.equipe_id=$${params.length}`); }
     if (funcionario) { params.push(funcionario);  conds.push(`f.funcionario_id=$${params.length}`); }
     if (data)        { params.push(data);         conds.push(`f.data=$${params.length}`); }
     if (compensado)  { params.push(compensado);   conds.push(`f.compensado=$${params.length}`); }
+    if (deveEmpresa === "Sim") { conds.push(`f.deve_empresa=TRUE`); }
+    if (deveEmpresa === "Não") { conds.push(`f.deve_empresa=FALSE`); }
     const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
     const r = await pool.query(
       `SELECT f.id,
@@ -23,7 +25,8 @@ router.get("/", auth, async (req, res) => {
               f.data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
               f.total_horas AS "totalHoras", f.compensado, f.observacao,
-              EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='CONTROLE_FOLGAS' AND f.data BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado"
+              f.deve_empresa AS "deveEmpresa",
+              EXISTS(SELECT 1 FROM period_closures pc WHERE pc.screen_key='CONTROLE_FOLGAS' AND f.data::date BETWEEN pc.date_start AND pc.date_end) AS "periodoFechado"
          FROM folgas f
          JOIN companies  e  ON e.id  = f.empresa_id
          JOIN teams      eq ON eq.id = f.equipe_id
@@ -38,15 +41,15 @@ router.get("/", auth, async (req, res) => {
 
 // POST /folgas
 router.post("/", auth, async (req, res) => {
-  const { empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras, compensado, observacao } = req.body;
+  const { empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras, compensado, observacao, deveEmpresa } = req.body;
   if (!empresaId || !equipeId || !funcionarioId || !data || !horaInicio || !horaFim)
     return res.status(400).json({ error: "Campos obrigatórios não preenchidos." });
   try {
     if (await isDateClosed(SCREEN_KEYS.FOLGAS, data)) return res.status(409).json({ error: CLOSED_MESSAGE });
     const r = await pool.query(
-      `INSERT INTO folgas (empresa_id,equipe_id,funcionario_id,data,hora_inicio,hora_fim,total_horas,compensado,observacao)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras || null, compensado || "Não", observacao || null]
+      `INSERT INTO folgas (empresa_id,equipe_id,funcionario_id,data,hora_inicio,hora_fim,total_horas,compensado,observacao,deve_empresa)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras || null, compensado || "Não", observacao || null, deveEmpresa || false]
     );
     res.status(201).json({ id: r.rows[0].id });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar folga." }); }
@@ -54,7 +57,7 @@ router.post("/", auth, async (req, res) => {
 
 // PUT /folgas/:id
 router.put("/:id", auth, async (req, res) => {
-  const { empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras, compensado, observacao } = req.body;
+  const { empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras, compensado, observacao, deveEmpresa } = req.body;
   if (!empresaId || !equipeId || !funcionarioId || !data || !horaInicio || !horaFim)
     return res.status(400).json({ error: "Campos obrigatórios não preenchidos." });
   try {
@@ -64,8 +67,8 @@ router.put("/:id", auth, async (req, res) => {
       return res.status(409).json({ error: CLOSED_MESSAGE });
     await pool.query(
       `UPDATE folgas SET empresa_id=$1,equipe_id=$2,funcionario_id=$3,data=$4,
-       hora_inicio=$5,hora_fim=$6,total_horas=$7,compensado=$8,observacao=$9 WHERE id=$10`,
-      [empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras || null, compensado || "Não", observacao || null, req.params.id]
+       hora_inicio=$5,hora_fim=$6,total_horas=$7,compensado=$8,observacao=$9,deve_empresa=$10 WHERE id=$11`,
+      [empresaId, equipeId, funcionarioId, data, horaInicio, horaFim, totalHoras || null, compensado || "Não", observacao || null, deveEmpresa || false, req.params.id]
     );
     res.json({ success: true });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar folga." }); }
