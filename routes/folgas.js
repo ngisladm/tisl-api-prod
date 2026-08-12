@@ -88,12 +88,13 @@ router.delete("/:id", auth, async (req, res) => {
 // GET /folgas/relatorio
 router.get("/relatorio", auth, async (req, res) => {
   try {
-    const { empresa, equipe, funcionario, data, compensado } = req.query;
+    const { empresa, equipe, funcionario, dataInicio, dataFim, compensado } = req.query;
     const conds = [], params = [];
     if (empresa)     { params.push(empresa);     conds.push(`f.empresa_id=$${params.length}`); }
     if (equipe)      { params.push(equipe);       conds.push(`f.equipe_id=$${params.length}`); }
     if (funcionario) { params.push(funcionario);  conds.push(`f.funcionario_id=$${params.length}`); }
-    if (data)        { params.push(data);         conds.push(`f.data=$${params.length}`); }
+    if (dataInicio)  { params.push(dataInicio);   conds.push(`f.data::date>=$${params.length}`); }
+    if (dataFim)     { params.push(dataFim);      conds.push(`f.data::date<=$${params.length}`); }
     if (compensado)  { params.push(compensado);   conds.push(`f.compensado=$${params.length}`); }
     const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
     const r = await pool.query(
