@@ -1064,6 +1064,12 @@ migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXIST
 migrate("INSERT INTO screens (id,name,module) VALUES ('s69','Controle de Ativos Terceirizados','Movimentações') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s69":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's69')`);
 
+// Versão 33 — Relatórios Ativos Terceirizados (s71, s72)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s71','Resumo de Ativos Terceirizados','Relatórios') ON CONFLICT DO NOTHING");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s72','Inventário de Ativos Terceirizados','Relatórios') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s71":{"view":true}}'::jsonb WHERE NOT (permissions ? 's71')`);
+migrate(`UPDATE profiles SET permissions = permissions || '{"s72":{"view":true}}'::jsonb WHERE NOT (permissions ? 's72')`);
+
 // Versão 32 — IP em itens terceirizados, Observações em Localizações
 migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS ip VARCHAR(50)");
 migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS observacao TEXT");

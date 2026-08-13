@@ -149,6 +149,30 @@ router.get("/:id/itens", auth, canAccess("s69"), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar itens." }); }
 });
 
+// GET /controle-ativos-terceirizados/itens/relatorio — para relatórios s71/s72
+router.get("/itens/relatorio", auth, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT ${ITEM_FIELDS},
+             cat.localizacao_id AS "localizacaoId",
+             nf.nome AS "filialNome",
+             nf.nome || ' — ' || COALESCE(emp.name,'') AS "nomeLocalizacao",
+             emp.name AS "empresaLocalizacao"
+        FROM itens_controle_ativos_terceirizados i
+        LEFT JOIN controle_ativos_terceirizados cat ON cat.id = i.controle_terceirizado_id
+        LEFT JOIN network_filiais nf ON nf.id = cat.localizacao_id
+        LEFT JOIN companies emp ON emp.id = nf.empresa_id
+        LEFT JOIN companies c ON c.id = i.company_id
+        LEFT JOIN tipo_ativos ta ON ta.id = i.tipo_ativo_id
+        LEFT JOIN operadoras o ON o.id = i.operadora_id
+        LEFT JOIN linhas_disponiveis ld ON ld.id = i.linha_id
+        LEFT JOIN ativos a ON a.id = i.ativo_id
+        LEFT JOIN suppliers s ON s.id = i.supplier_id
+       ORDER BY nf.nome, ta.name, a.nome`);
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar relatório." }); }
+});
+
 router.get("/itens/all", auth, canAccess("s69"), async (req, res) => {
   try {
     const r = await pool.query(`
