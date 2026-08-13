@@ -97,6 +97,7 @@ router.post("/importar", auth, canAccess("s39","insert"), async (req, res) => {
   for (let idx = 0; idx < linhas.length; idx++) {
     const l = linhas[idx];
     const nome        = col(l, "Nome");
+    const empresa     = col(l, "Empresa");
     const logradouro  = col(l, "Logradouro");
     const centroCusto = col(l, "Centro de Custo");
     const observacao  = col(l, "Observações", "Observacoes");
@@ -108,6 +109,16 @@ router.post("/importar", auth, canAccess("s39","insert"), async (req, res) => {
     if (dup.rows[0]) { duplicados++; continue; }
 
     try {
+      // Resolve Empresa pelo campo fantasia (name)
+      let empresaId = null;
+      if (empresa) {
+        const empRes = await pool.query(
+          "SELECT id FROM companies WHERE LOWER(name)=LOWER($1) LIMIT 1",
+          [empresa]
+        );
+        empresaId = empRes.rows[0]?.id || null;
+      }
+
       // Resolve Centro de Custo pelo campo centro_custo
       let centroCustoId = null;
       if (centroCusto) {
@@ -119,9 +130,9 @@ router.post("/importar", auth, canAccess("s39","insert"), async (req, res) => {
       }
 
       await pool.query(
-        `INSERT INTO network_filiais (nome, logradouro, observacao, centro_custo_id, active)
-         VALUES ($1, $2, $3, $4, true)`,
-        [nome, logradouro||null, observacao||null, centroCustoId]
+        `INSERT INTO network_filiais (nome, empresa_id, logradouro, observacao, centro_custo_id, active)
+         VALUES ($1, $2, $3, $4, $5, true)`,
+        [nome, empresaId, logradouro||null, observacao||null, centroCustoId]
       );
       inseridos++;
     } catch (e) {
