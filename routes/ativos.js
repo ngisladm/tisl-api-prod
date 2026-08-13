@@ -19,7 +19,9 @@ const FIELDS = `
   a.imei_slot1 AS "imeiSlot1",
   a.imei_slot2 AS "imeiSlot2",
   COALESCE(a.status,'Em Estoque') AS status,
-  a.observacao
+  a.observacao,
+  a.supplier_id AS "supplierId", s.name AS "supplierName",
+  a.toner, a.franquia, a.vr_excedentes AS "vrExcedentes"
 `;
 
 router.get("/", auth, canAccess("s20"), async (req, res) => {
@@ -29,6 +31,7 @@ router.get("/", auth, canAccess("s20"), async (req, res) => {
          FROM ativos a
          LEFT JOIN tipo_ativos ta ON ta.id = a.tipo_ativo_id
          LEFT JOIN companies   c  ON c.id  = a.company_id
+         LEFT JOIN suppliers   s  ON s.id  = a.supplier_id
         ORDER BY a.nome`
     );
     res.json(r.rows);
@@ -46,7 +49,8 @@ const parseDate = str => {
 router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
-          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao } = req.body;
+          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao,
+          supplierId, toner, franquia, vrExcedentes } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do ativo é obrigatório." });
   try {
     const r = await pool.query(
@@ -54,14 +58,16 @@ router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
          (nome, tipo_ativo_id, company_id, marca, modelo, numero_serie,
           sistema_operacional, versao, processador, memoria, hd, patrimonio,
           numero_documento, valor, data_aquisicao, condicao, acessorios,
-          imei_slot1, imei_slot2, observacao, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Em Estoque')
+          imei_slot1, imei_slot2, observacao, status,
+          supplier_id, toner, franquia, vr_excedentes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Em Estoque',$21,$22,$23,$24)
        RETURNING id`,
       [nome.trim(), tipoAtivoId||null, companyId||null, marca||null, modelo||null,
        numeroSerie||null, sistemaOperacional||null, versao||null, processador||null,
        memoria||null, hd||null, patrimonio||null, numeroDocumento||null,
        valor||null, parseDate(dataAquisicao), condicao||null, acessorios||null,
-       imeiSlot1||null, imeiSlot2||null, observacao||null]
+       imeiSlot1||null, imeiSlot2||null, observacao||null,
+       supplierId||null, toner||null, franquia||null, vrExcedentes||null]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar ativo." }); }
@@ -70,7 +76,8 @@ router.post("/", auth, canAccess("s20","edit"), async (req, res) => {
 router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
   const { nome, tipoAtivoId, companyId, marca, modelo, numeroSerie, sistemaOperacional,
           versao, processador, memoria, hd, patrimonio, numeroDocumento, valor,
-          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao } = req.body;
+          dataAquisicao, condicao, acessorios, imeiSlot1, imeiSlot2, observacao,
+          supplierId, toner, franquia, vrExcedentes } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do ativo é obrigatório." });
   try {
     const r = await pool.query(
@@ -79,14 +86,18 @@ router.put("/:id", auth, canAccess("s20","edit"), async (req, res) => {
          numero_serie=$6, sistema_operacional=$7, versao=$8, processador=$9,
          memoria=$10, hd=$11, patrimonio=$12, numero_documento=$13,
          valor=$14, data_aquisicao=$15, condicao=$16, acessorios=$17,
-         imei_slot1=$18, imei_slot2=$19, observacao=$20, updated_at=NOW()
-       WHERE id=$21
+         imei_slot1=$18, imei_slot2=$19, observacao=$20,
+         supplier_id=$21, toner=$22, franquia=$23, vr_excedentes=$24,
+         updated_at=NOW()
+       WHERE id=$25
        RETURNING id`,
       [nome.trim(), tipoAtivoId||null, companyId||null, marca||null, modelo||null,
        numeroSerie||null, sistemaOperacional||null, versao||null, processador||null,
        memoria||null, hd||null, patrimonio||null, numeroDocumento||null,
        valor||null, parseDate(dataAquisicao), condicao||null, acessorios||null,
-       imeiSlot1||null, imeiSlot2||null, observacao||null, req.params.id]
+       imeiSlot1||null, imeiSlot2||null, observacao||null,
+       supplierId||null, toner||null, franquia||null, vrExcedentes||null,
+       req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Ativo não encontrado." });
     res.json({ success: true });
@@ -260,6 +271,15 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
     const dataAq     = parseDate((l["Data Aquisição"]||"").trim());
     const condicao   = (l["Condição"]       ||"").trim()||null;
     const imeiSlot2  = (l["IMEI Slot 2"]   ||"").trim()||null;
+    const toner      = (l["Toner"]          ||"").trim()||null;
+    const franquia   = parseValorBR((l["Franquia"]||"").trim());
+    const vrExced    = parseValorBR((l["Vr Excedentes"]||"").trim());
+    const fornecedorNome = (l["Fornecedor"] ||"").trim();
+    let supplierId = null;
+    if (fornecedorNome) {
+      const sr = await pool.query("SELECT id FROM suppliers WHERE LOWER(name)=LOWER($1) LIMIT 1", [fornecedorNome]);
+      supplierId = sr.rows[0]?.id || null;
+    }
     const dupRes = await pool.query(
       `SELECT id FROM ativos WHERE
          LOWER(nome)               = LOWER($1)
@@ -281,8 +301,9 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
       await pool.query(
         `INSERT INTO ativos (nome,tipo_ativo_id,company_id,marca,modelo,numero_serie,
            sistema_operacional,versao,processador,memoria,hd,patrimonio,numero_documento,
-           valor,data_aquisicao,condicao,acessorios,imei_slot1,imei_slot2,status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Em Estoque')`,
+           valor,data_aquisicao,condicao,acessorios,imei_slot1,imei_slot2,
+           supplier_id,toner,franquia,vr_excedentes,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'Em Estoque')`,
         [nome, tipoAtivoId, companyId,
          marca, modelo,
          numeroSerie||null, (l["Sistema Operacional"]||"").trim()||null,
@@ -291,7 +312,8 @@ router.post("/importar", auth, canAccess("s20","edit"), async (req, res) => {
          (l["Patrimônio"]||"").trim()||null, nrDoc,
          valor, dataAq, condicao,
          (l["Acessórios"]||"").trim()||null,
-         imeiSlot1||null, imeiSlot2||null]
+         imeiSlot1||null, imeiSlot2||null,
+         supplierId, toner, franquia, vrExced]
       );
       await pool.query("INSERT INTO asset_names(name) VALUES ($1) ON CONFLICT DO NOTHING", [nome]);
       if (marca) await pool.query("INSERT INTO asset_brands(name) VALUES ($1) ON CONFLICT DO NOTHING", [marca]);

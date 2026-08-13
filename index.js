@@ -26,6 +26,8 @@ const linhasDisponiveisRoutes = require("./routes/linhas-disponiveis");
 const ativosRoutes            = require("./routes/ativos");
 const { assetNamesRouter, assetBrandsRouter } = require("./routes/asset-catalogs");
 const controleAtivosRoutes    = require("./routes/controle-ativos");
+const controleAtivosTerceirizadosRoutes = require("./routes/controle-ativos-terceirizados");
+const consumoImpressaoRoutes            = require("./routes/consumo-impressao");
 const funcionariosRoutes      = require("./routes/funcionarios");
 const modelosContratoRoutes   = require("./routes/modelos-contrato");
 const { router: syncRoutes, syncFuncionarios } = require("./routes/sync");
@@ -1024,6 +1026,69 @@ migrate("INSERT INTO screens (id,name,module) VALUES ('s68','Marcas de Ativos','
 migrate(`UPDATE profiles SET permissions = permissions || '{"s67":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's67')`);
 migrate(`UPDATE profiles SET permissions = permissions || '{"s68":{"view":false,"insert":false,"edit":false,"delete":false}}'::jsonb WHERE NOT (permissions ? 's68')`);
 
+// Versão 30 — Campos novos em Ativos, Localizações, Controle de Ativos Terceirizados (s69)
+migrate("ALTER TABLE ativos ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL");
+migrate("ALTER TABLE ativos ADD COLUMN IF NOT EXISTS toner VARCHAR(200)");
+migrate("ALTER TABLE ativos ADD COLUMN IF NOT EXISTS franquia NUMERIC(12,2)");
+migrate("ALTER TABLE ativos ADD COLUMN IF NOT EXISTS vr_excedentes NUMERIC(12,2)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS centro_custo_id UUID REFERENCES consumo_ccusto(id) ON DELETE SET NULL");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS responsavel_id UUID REFERENCES funcionarios(id) ON DELETE SET NULL");
+migrate(`CREATE TABLE IF NOT EXISTS controle_ativos_terceirizados (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  localizacao_id UUID REFERENCES network_filiais(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS itens_controle_ativos_terceirizados (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  controle_terceirizado_id UUID REFERENCES controle_ativos_terceirizados(id) ON DELETE CASCADE,
+  company_id    UUID REFERENCES companies(id),
+  tipo_ativo_id UUID REFERENCES tipo_ativos(id),
+  operadora_id  UUID REFERENCES operadoras(id),
+  linha_id      UUID REFERENCES linhas_disponiveis(id),
+  ativo_id      UUID REFERENCES ativos(id),
+  acesso VARCHAR(200), estrutura VARCHAR(200), iccid VARCHAR(100), tipo_pacote VARCHAR(50),
+  marca VARCHAR(100), modelo VARCHAR(100), imei_slot1 VARCHAR(100), imei_slot2 VARCHAR(100),
+  numero_serie VARCHAR(100), sistema_operacional VARCHAR(100), versao VARCHAR(50),
+  processador VARCHAR(100), memoria VARCHAR(50), hd VARCHAR(50), patrimonio VARCHAR(100),
+  numero_documento VARCHAR(100), valor NUMERIC(12,2), data_aquisicao DATE,
+  condicao VARCHAR(20), acessorios TEXT, status_ativo VARCHAR(20),
+  attachments JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL");
+migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS toner VARCHAR(200)");
+migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS franquia NUMERIC(12,2)");
+migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS vr_excedentes NUMERIC(12,2)");
+migrate("INSERT INTO screens (id,name,module) VALUES ('s69','Controle de Ativos Terceirizados','Movimentações') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s69":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's69')`);
+
+// Versão 32 — IP em itens terceirizados, Observações em Localizações
+migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXISTS ip VARCHAR(50)");
+migrate("ALTER TABLE network_filiais ADD COLUMN IF NOT EXISTS observacao TEXT");
+
+// Versão 31 — Consumo de Impressão (s70)
+migrate(`CREATE TABLE IF NOT EXISTS consumo_impressao (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  mes_ano VARCHAR(7) NOT NULL,
+  supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate(`CREATE TABLE IF NOT EXISTS itens_consumo_impressao (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  consumo_impressao_id UUID REFERENCES consumo_impressao(id) ON DELETE CASCADE,
+  ativo_id UUID REFERENCES ativos(id) ON DELETE SET NULL,
+  qtde_anterior NUMERIC(12,2) NOT NULL DEFAULT 0,
+  qtde_atual NUMERIC(12,2) NOT NULL DEFAULT 0,
+  categoria VARCHAR(30),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)`);
+migrate("INSERT INTO screens (id,name,module) VALUES ('s70','Consumo de Impressão','Movimentações') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s70":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's70')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
@@ -1045,6 +1110,8 @@ app.use("/ativos",            ativosRoutes);
 app.use("/nomes-ativos",      assetNamesRouter);
 app.use("/marcas-ativos",     assetBrandsRouter);
 app.use("/controle-ativos",   controleAtivosRoutes);
+app.use("/controle-ativos-terceirizados", controleAtivosTerceirizadosRoutes);
+app.use("/consumo-impressao",             consumoImpressaoRoutes);
 app.use("/funcionarios",      funcionariosRoutes);
 app.use("/modelos-contrato",  modelosContratoRoutes);
 app.use("/email-config",      emailConfigRoutes);
