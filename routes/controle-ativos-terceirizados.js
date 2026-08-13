@@ -407,24 +407,32 @@ router.post("/importar-itens", auth, canAccess("s69","edit"), async (req, res) =
         controleId = novoControle.rows[0].id;
       }
 
-      // 7. Insere o item
-      const r = await pool.query(`
-        INSERT INTO itens_controle_ativos_terceirizados
-          (controle_terceirizado_id, company_id, tipo_ativo_id, ativo_id,
+      // 7. Insere o item (supplier_id/toner/franquia/vr_excedentes inseridos apenas se as colunas existirem)
+      const colsExtra = [];
+      const valsExtra = [];
+      try {
+        const chk = await pool.query("SELECT supplier_id FROM itens_controle_ativos_terceirizados LIMIT 0");
+        colsExtra.push("supplier_id","toner","franquia","vr_excedentes");
+        valsExtra.push(ativo.supplier_id||null, ativo.toner||null, ativo.franquia||null, ativo.vr_excedentes||null);
+      } catch(_) {}
+
+      const baseCols = `controle_terceirizado_id, company_id, tipo_ativo_id, ativo_id,
            marca, modelo, numero_serie, sistema_operacional, versao,
            processador, memoria, hd, patrimonio, numero_documento, valor,
-           data_aquisicao, condicao, acessorios, imei_slot1, imei_slot2,
-           supplier_id, toner, franquia, vr_excedentes, status_ativo, attachments)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'Em uso','[]')
-        RETURNING id`,
-        [controleId, companyId, tipoFinal, ativoId,
+           data_aquisicao, condicao, acessorios, imei_slot1, imei_slot2, status_ativo, attachments`;
+      const baseVals = [controleId, companyId, tipoFinal, ativoId,
          ativo.marca||null, ativo.modelo||null, ativo.numero_serie||null,
          ativo.sistema_operacional||null, ativo.versao||null, ativo.processador||null,
          ativo.memoria||null, ativo.hd||null, ativo.patrimonio||null,
          ativo.numero_documento||null, ativo.valor||null, ativo.data_aquisicao||null,
          ativo.condicao||null, ativo.acessorios||null,
-         ativo.imei_slot1||null, ativo.imei_slot2||null,
-         ativo.supplier_id||null, ativo.toner||null, ativo.franquia||null, ativo.vr_excedentes||null]
+         ativo.imei_slot1||null, ativo.imei_slot2||null, 'Em uso', '[]'];
+      const allCols = baseCols + (colsExtra.length ? ", " + colsExtra.join(", ") : "");
+      const allVals = [...baseVals, ...valsExtra];
+      const placeholders = allVals.map((_,i)=>`$${i+1}`).join(",");
+      const r = await pool.query(
+        `INSERT INTO itens_controle_ativos_terceirizados (${allCols}) VALUES (${placeholders}) RETURNING id`,
+        allVals
       );
 
       // 8. Marca ativo como "Em uso"
