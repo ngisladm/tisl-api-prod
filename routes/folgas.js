@@ -101,7 +101,8 @@ router.get("/relatorio", auth, async (req, res) => {
       `SELECT fn.nome AS "funcionarioNome", eq.name AS "equipeNome",
               f.data,
               f.hora_inicio AS "horaInicio", f.hora_fim AS "horaFim",
-              f.total_horas AS "totalHoras", f.compensado, f.observacao
+              f.total_horas AS "totalHoras", f.compensado, f.observacao,
+              f.deve_empresa AS "deveEmpresa"
          FROM folgas f
          JOIN teams      eq ON eq.id = f.equipe_id
          JOIN funcionarios fn ON fn.id = f.funcionario_id
