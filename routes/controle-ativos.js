@@ -296,6 +296,7 @@ const parseDate = str => {
 router.post("/:id/itens", auth, canAccess("s21","edit"), async (req, res) => {
   const f = req.body;
   try {
+    const statusAtivo = (f.ativoId || f.linhaId) ? 'Em uso' : (f.statusAtivo || 'Em Estoque');
     const r = await pool.query(
       `INSERT INTO itens_controle_ativos
          (controle_ativo_id, company_id, tipo_ativo_id, operadora_id, linha_id, ativo_id,
@@ -313,7 +314,7 @@ router.post("/:id/itens", auth, canAccess("s21","edit"), async (req, res) => {
        f.processador||null, f.memoria||null, f.hd||null, f.patrimonio||null,
        f.numeroDocumento||null,
        f.valor||null, parseDate(f.dataAquisicao), f.condicao||null,
-       f.acessorios||null, f.statusAtivo||null]
+       f.acessorios||null, statusAtivo]
     );
     const itemId = r.rows[0].id;
     // V11: atualiza status do ativo e da linha para "Em uso"
@@ -332,6 +333,7 @@ router.put("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res)
     const oldAtivoId = old.rows[0]?.ativo_id || null;
     const oldLinhaId = old.rows[0]?.linha_id || null;
 
+    const statusAtivo = (f.ativoId || f.linhaId) ? 'Em uso' : (f.statusAtivo || 'Em Estoque');
     const r = await pool.query(
       `UPDATE itens_controle_ativos SET
          company_id=$1, tipo_ativo_id=$2, operadora_id=$3, linha_id=$4, ativo_id=$5,
@@ -348,7 +350,7 @@ router.put("/:id/itens/:itemId", auth, canAccess("s21","edit"), async (req, res)
        f.numeroSerie||null, f.sistemaOperacional||null, f.versao||null,
        f.processador||null, f.memoria||null, f.hd||null, f.patrimonio||null,
        f.numeroDocumento||null, f.valor||null, parseDate(f.dataAquisicao),
-       f.condicao||null, f.acessorios||null, f.statusAtivo||null,
+       f.condicao||null, f.acessorios||null, statusAtivo,
        req.params.itemId, req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
