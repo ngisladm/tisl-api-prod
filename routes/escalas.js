@@ -353,6 +353,7 @@ router.get("/relatorio/horas", auth, async (req, res) => {
               t.id    AS "teamId",  t.name AS "teamName"
          FROM escala_turnos et
          JOIN escalas            e  ON e.id  = et.escala_id
+                                   AND et.turno_date BETWEEN e.data_inicio AND e.data_fim
          JOIN funcionarios       fn ON fn.id = et.funcionario_id
          JOIN equipe_itens       ei ON ei.funcionario_id = et.funcionario_id
          JOIN teams              t  ON t.id  = ei.team_id
