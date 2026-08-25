@@ -204,6 +204,22 @@ router.post("/:id/itens", auth, canAccess("s69","edit"), async (req, res) => {
           supplierId, toner, franquia, vrExcedentes, ip } = req.body;
   const client = await pool.connect();
   try {
+    if (ativoId) {
+      const dup = await pool.query(
+        "SELECT id FROM itens_controle_ativos_terceirizados WHERE controle_terceirizado_id=$1 AND ativo_id=$2 LIMIT 1",
+        [req.params.id, ativoId]
+      );
+      if (dup.rows.length > 0)
+        return res.status(400).json({ error: "Este ativo já está vinculado a este registro." });
+    }
+    if (linhaId) {
+      const dup = await pool.query(
+        "SELECT id FROM itens_controle_ativos_terceirizados WHERE controle_terceirizado_id=$1 AND linha_id=$2 LIMIT 1",
+        [req.params.id, linhaId]
+      );
+      if (dup.rows.length > 0)
+        return res.status(400).json({ error: "Esta linha já está vinculada a este registro." });
+    }
     await client.query("BEGIN");
     const r = await client.query(`
       INSERT INTO itens_controle_ativos_terceirizados

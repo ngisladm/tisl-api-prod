@@ -296,6 +296,23 @@ const parseDate = str => {
 router.post("/:id/itens", auth, canAccess("s21","edit"), async (req, res) => {
   const f = req.body;
   try {
+    // Verifica duplicata: mesmo ativo ou mesma linha já vinculado a este funcionário
+    if (f.ativoId) {
+      const dup = await pool.query(
+        "SELECT id FROM itens_controle_ativos WHERE controle_ativo_id=$1 AND ativo_id=$2 LIMIT 1",
+        [req.params.id, f.ativoId]
+      );
+      if (dup.rows.length > 0)
+        return res.status(400).json({ error: "Este ativo já está vinculado a este funcionário." });
+    }
+    if (f.linhaId) {
+      const dup = await pool.query(
+        "SELECT id FROM itens_controle_ativos WHERE controle_ativo_id=$1 AND linha_id=$2 LIMIT 1",
+        [req.params.id, f.linhaId]
+      );
+      if (dup.rows.length > 0)
+        return res.status(400).json({ error: "Esta linha já está vinculada a este funcionário." });
+    }
     const statusAtivo = (f.ativoId || f.linhaId) ? 'Em uso' : (f.statusAtivo || 'Em Estoque');
     const r = await pool.query(
       `INSERT INTO itens_controle_ativos
