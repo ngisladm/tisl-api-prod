@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const router  = express.Router();
 const pool    = require("../db");
 const auth    = require("../middleware/auth");
@@ -734,8 +734,9 @@ router.post("/importar-itens", auth, canAccess("s21","edit"), async (req, res) =
         }
       } else {
         // Busca ativo por Nº de Série, depois por IMEI Slot 1
-        const nroSerie = colCA(l, "Nº de Série") || colCA(l, "No de Serie") || colCA(l, "Nr Serie");
-        const imei1    = colCA(l, "Imei(Slot1)") || colCA(l, "IMEI Slot 1") || colCA(l, "Imei Slot1");
+        const stripInvisible = s => s.replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+        const nroSerie = stripInvisible(colCA(l, "Nº de Série") || colCA(l, "No de Serie") || colCA(l, "Nr Serie"));
+        const imei1    = stripInvisible(colCA(l, "Imei(Slot1)") || colCA(l, "IMEI Slot 1") || colCA(l, "Imei Slot1"));
         let ativoId = null; let ativoRow = null;
         const ativoFields = "id, marca, modelo, numero_serie, sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento, valor, data_aquisicao, condicao, acessorios, imei_slot1, imei_slot2";
         if (nroSerie) {
