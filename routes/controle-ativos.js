@@ -739,13 +739,13 @@ router.post("/importar-itens", auth, canAccess("s21","edit"), async (req, res) =
         let ativoId = null; let ativoRow = null;
         const ativoFields = "id, marca, modelo, numero_serie, sistema_operacional, versao, processador, memoria, hd, patrimonio, numero_documento, valor, data_aquisicao, condicao, acessorios, imei_slot1, imei_slot2";
         if (nroSerie) {
-          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(numero_serie)=LOWER($1)`; const p = [nroSerie];
+          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(TRIM(numero_serie))=LOWER(TRIM($1))`; const p = [nroSerie];
           if (companyId) { q += " AND company_id=$2"; p.push(companyId); }
           const r = await pool.query(q + " LIMIT 1", p);
           if (r.rows[0]) { ativoId = r.rows[0].id; ativoRow = r.rows[0]; }
         }
         if (!ativoId && imei1) {
-          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(imei_slot1)=LOWER($1)`; const p = [imei1];
+          let q = `SELECT ${ativoFields} FROM ativos WHERE LOWER(TRIM(imei_slot1))=LOWER(TRIM($1))`; const p = [imei1];
           if (companyId) { q += " AND company_id=$2"; p.push(companyId); }
           const r = await pool.query(q + " LIMIT 1", p);
           if (r.rows[0]) { ativoId = r.rows[0].id; ativoRow = r.rows[0]; }
