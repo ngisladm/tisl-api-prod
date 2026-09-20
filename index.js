@@ -973,6 +973,17 @@ migrate(`
 
   CREATE INDEX IF NOT EXISTS idx_pdi_anexos_pdi ON pdi_anexos(pdi_id);
 `);
+migrate(`
+  CREATE TABLE IF NOT EXISTS indicador_lancamento_anexos (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lancamento_id UUID NOT NULL REFERENCES indicador_lancamentos(id) ON DELETE CASCADE,
+    nome_original VARCHAR(500) NOT NULL,
+    filename      VARCHAR(500) NOT NULL,
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_ind_lanc_anexos_lancamento ON indicador_lancamento_anexos(lancamento_id);
+`);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s63','Avaliação','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s64','PDI','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s65','PDI','Relatórios') ON CONFLICT DO NOTHING");

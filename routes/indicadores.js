@@ -4,6 +4,25 @@ const pool    = require("../db");
 const auth    = require("../middleware/auth");
 const { canAccess, canAccessAnyScreen } = require("../middleware/canAccess");
 const { SCREEN_KEYS, CLOSED_MESSAGE, isDateClosed } = require("../utils/periodClosure");
+const multer = require("multer");
+const path   = require("path");
+const fs     = require("fs");
+
+const UPLOAD_DIR_INDICADORES = process.env.UPLOAD_DIR_INDICADORES || (process.platform === "win32" ? "C:/uploads/indicadores" : "/app/uploads/indicadores");
+if (!fs.existsSync(UPLOAD_DIR_INDICADORES)) fs.mkdirSync(UPLOAD_DIR_INDICADORES, { recursive: true });
+
+const indicadorStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR_INDICADORES),
+  filename: (_req, file, cb) => cb(null, Date.now() + "-" + Math.round(Math.random() * 1e9) + path.extname(file.originalname)),
+});
+const uploadIndicador = multer({ storage: indicadorStorage, limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
+
+function unlinkIndicadorFiles(filenames) {
+  for (const fn of filenames) {
+    const fp = path.join(UPLOAD_DIR_INDICADORES, path.basename(fn));
+    if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch (e) { console.error("[indicador-anexo]", e.message); } }
+  }
+}
 
 const parseDate = (str) => {
   if (!str) return null;
@@ -229,6 +248,63 @@ router.delete("/lancamentos/:id", auth, canAccess("s59", "edit"), async (req, re
     console.error(err);
     res.status(500).json({ error: "Erro ao excluir lançamento." });
   }
+});
+
+// ── ANEXOS DE LANÇAMENTO ─────────────────────────────────────────
+
+router.get("/lancamentos/:id/anexos", auth, canAccess("s59"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, nome_original AS "nomeOriginal", created_at AS "createdAt"
+         FROM indicador_lancamento_anexos WHERE lancamento_id=$1 ORDER BY created_at`,
+      [req.params.id]
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar anexos." }); }
+});
+
+router.post("/lancamentos/:id/anexos", auth, canAccess("s59", "edit"), uploadIndicador.array("files", 10), async (req, res) => {
+  const inserted = [];
+  try {
+    for (const file of (req.files || [])) {
+      const r = await pool.query(
+        `INSERT INTO indicador_lancamento_anexos (lancamento_id, nome_original, filename, created_by)
+         VALUES ($1,$2,$3,$4) RETURNING id, nome_original AS "nomeOriginal", created_at AS "createdAt"`,
+        [req.params.id, file.originalname, file.filename, req.user.id]
+      );
+      inserted.push(r.rows[0]);
+    }
+    res.status(201).json(inserted);
+  } catch (err) {
+    unlinkIndicadorFiles((req.files || []).map(f => f.filename));
+    console.error(err);
+    res.status(err.code === "23503" ? 404 : 500).json({ error: err.code === "23503" ? "Lançamento não encontrado." : "Erro ao salvar anexos." });
+  }
+});
+
+router.get("/lancamentos/anexos/:id/download", auth, canAccess("s59"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT nome_original, filename FROM indicador_lancamento_anexos WHERE id=$1",
+      [req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: "Anexo não encontrado." });
+    const fp = path.join(UPLOAD_DIR_INDICADORES, path.basename(r.rows[0].filename));
+    if (!fs.existsSync(fp)) return res.status(404).json({ error: "Arquivo não encontrado no servidor." });
+    res.download(fp, r.rows[0].nome_original);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao baixar anexo." }); }
+});
+
+router.delete("/lancamentos/anexos/:id", auth, canAccess("s59", "edit"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      "DELETE FROM indicador_lancamento_anexos WHERE id=$1 RETURNING filename",
+      [req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: "Anexo não encontrado." });
+    unlinkIndicadorFiles([r.rows[0].filename]);
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir anexo." }); }
 });
 
 // GET /indicadores/report?dateFrom=&dateTo=&teamId=&indicadorId=  (deve vir antes de /:id)
