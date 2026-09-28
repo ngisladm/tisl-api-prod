@@ -995,13 +995,11 @@ migrate(`
     created_at    TIMESTAMPTZ DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_indicador_metas_indicador ON indicador_metas(indicador_id);
-`);
-migrate(`
   INSERT INTO indicador_metas (indicador_id, data_inicio, data_fim, meta)
   SELECT id, '2026-01-01'::date, '2026-12-31'::date, meta
   FROM indicadores
   WHERE meta IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM indicador_metas im WHERE im.indicador_id = indicadores.id)
+    AND NOT EXISTS (SELECT 1 FROM indicador_metas im WHERE im.indicador_id = indicadores.id);
 `);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s63','Avaliação','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s64','PDI','Movimentações') ON CONFLICT DO NOTHING");
