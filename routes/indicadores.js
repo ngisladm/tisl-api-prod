@@ -151,7 +151,12 @@ router.delete("/:id", auth, canAccess("s58", "edit"), async (req, res) => {
 
 const LANCAMENTO_SELECT = `
   SELECT l.id, l.indicador_id AS "indicadorId",
-         i.nome AS "indicadorNome", i.unidade, i.meta, i.direcao,
+         i.nome AS "indicadorNome", i.unidade,
+         (SELECT im.meta FROM indicador_metas im
+          WHERE im.indicador_id = i.id
+            AND l.data_referencia BETWEEN im.data_inicio AND im.data_fim
+          LIMIT 1) AS meta,
+         i.direcao,
          i.limite_maximo AS "limiteMaximo", i.team_id AS "teamId",
          t.name AS "teamName",
          TO_CHAR(l.data_referencia,'DD/MM/YYYY') AS "dataReferencia",
@@ -376,6 +381,57 @@ router.get("/comparativo", auth, canAccess("s62"), async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "Erro ao gerar comparativo de indicadores." });
   }
+});
+
+// ── METAS DE INDICADOR ────────────────────────────────────────────
+
+router.get("/:indicadorId/metas", auth, canAccess("s58"), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, TO_CHAR(data_inicio,'DD/MM/YYYY') AS "dataInicio",
+              TO_CHAR(data_fim,'DD/MM/YYYY') AS "dataFim", meta,
+              created_at AS "createdAt"
+         FROM indicador_metas WHERE indicador_id=$1 ORDER BY data_inicio`,
+      [req.params.indicadorId]
+    );
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao buscar metas." }); }
+});
+
+router.post("/:indicadorId/metas", auth, canAccess("s58", "edit"), async (req, res) => {
+  const { dataInicio, dataFim, meta } = req.body;
+  if (!dataInicio || !dataFim || meta === null || meta === undefined || meta === "")
+    return res.status(400).json({ error: "Data Início, Data Fim e Meta são obrigatórios." });
+  const di = parseDate(dataInicio);
+  const df = parseDate(dataFim);
+  if (di > df) return res.status(400).json({ error: "Data Início deve ser anterior à Data Fim." });
+  try {
+    const overlap = await pool.query(
+      `SELECT id FROM indicador_metas
+       WHERE indicador_id=$1 AND data_inicio <= $3::date AND data_fim >= $2::date`,
+      [req.params.indicadorId, di, df]
+    );
+    if (overlap.rows.length > 0)
+      return res.status(400).json({ error: "O período conflita com uma vigência já cadastrada." });
+    const r = await pool.query(
+      `INSERT INTO indicador_metas (indicador_id, data_inicio, data_fim, meta, created_by)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, TO_CHAR(data_inicio,'DD/MM/YYYY') AS "dataInicio",
+                 TO_CHAR(data_fim,'DD/MM/YYYY') AS "dataFim", meta, created_at AS "createdAt"`,
+      [req.params.indicadorId, di, df, meta, req.user.id]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar meta." }); }
+});
+
+router.delete("/:indicadorId/metas/:id", auth, canAccess("s58", "edit"), async (req, res) => {
+  try {
+    await pool.query(
+      "DELETE FROM indicador_metas WHERE id=$1 AND indicador_id=$2",
+      [req.params.id, req.params.indicadorId]
+    );
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao excluir meta." }); }
 });
 
 // GET /indicadores/:id  (deve vir por último, depois das rotas estáticas acima)

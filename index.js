@@ -984,6 +984,25 @@ migrate(`
   );
   CREATE INDEX IF NOT EXISTS idx_ind_lanc_anexos_lancamento ON indicador_lancamento_anexos(lancamento_id);
 `);
+migrate(`
+  CREATE TABLE IF NOT EXISTS indicador_metas (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    indicador_id  UUID NOT NULL REFERENCES indicadores(id) ON DELETE CASCADE,
+    data_inicio   DATE NOT NULL,
+    data_fim      DATE NOT NULL,
+    meta          NUMERIC NOT NULL,
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_indicador_metas_indicador ON indicador_metas(indicador_id);
+`);
+migrate(`
+  INSERT INTO indicador_metas (indicador_id, data_inicio, data_fim, meta)
+  SELECT id, '2026-01-01'::date, '2026-12-31'::date, meta
+  FROM indicadores
+  WHERE meta IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM indicador_metas im WHERE im.indicador_id = indicadores.id)
+`);
 migrate("INSERT INTO screens (id,name,module) VALUES ('s63','Avaliação','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s64','PDI','Movimentações') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s65','PDI','Relatórios') ON CONFLICT DO NOTHING");
