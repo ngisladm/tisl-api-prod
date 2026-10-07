@@ -1092,6 +1092,11 @@ migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXIST
 migrate("INSERT INTO screens (id,name,module) VALUES ('s69','Controle de Ativos Terceirizados','Movimentações') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s69":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's69')`);
 
+// Ciência em Itens de Equipe
+migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS ciencia_usuario_id UUID REFERENCES users(id) ON DELETE SET NULL");
+migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS ciencia_nome VARCHAR(200)");
+migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS ciencia_at TIMESTAMPTZ");
+
 // Versão 33 — Relatórios Ativos Terceirizados (s71, s72)
 migrate("INSERT INTO screens (id,name,module) VALUES ('s71','Resumo de Ativos Terceirizados','Relatórios') ON CONFLICT DO NOTHING");
 migrate("INSERT INTO screens (id,name,module) VALUES ('s72','Inventário de Ativos Terceirizados','Relatórios') ON CONFLICT DO NOTHING");

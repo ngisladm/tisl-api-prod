@@ -168,13 +168,15 @@ router.get("/:id/itens", auth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ei.id,
-              ei.funcionario_id AS "funcionarioId",
-              fn.nome           AS "funcionarioNome",
+              ei.funcionario_id   AS "funcionarioId",
+              fn.nome             AS "funcionarioNome",
               fn.cargo,
-              fn.centro_custo   AS "centroCusto",
+              fn.centro_custo     AS "centroCusto",
               ei.missao,
               ei.papel,
-              ei.atribuicoes
+              ei.atribuicoes,
+              ei.ciencia_nome     AS "cienciaNome",
+              TO_CHAR(ei.ciencia_at AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS "cienciaAt"
          FROM equipe_itens ei
          JOIN funcionarios fn ON fn.id = ei.funcionario_id
         WHERE ei.team_id = $1
@@ -185,6 +187,28 @@ router.get("/:id/itens", auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar itens da equipe." });
+  }
+});
+
+// POST /teams/:id/itens/:itemId/ciencia
+router.post("/:id/itens/:itemId/ciencia", auth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `UPDATE equipe_itens
+          SET ciencia_usuario_id = $1,
+              ciencia_nome       = $2,
+              ciencia_at         = NOW()
+        WHERE id = $3 AND team_id = $4
+       RETURNING id,
+                 ciencia_nome AS "cienciaNome",
+                 TO_CHAR(ciencia_at AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS "cienciaAt"`,
+      [req.user.id, req.user.name, req.params.itemId, req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: "Item não encontrado." });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao registrar ciência." });
   }
 });
 
