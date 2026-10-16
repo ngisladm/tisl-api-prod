@@ -39,7 +39,10 @@ router.post("/", auth, canAccess("s19","edit"), async (req, res) => {
        acesso||null, estrutura||null, iccid||null, tipoPacote||null]
     );
     res.status(201).json(r.rows[0]);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao criar linha disponível." }); }
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Este número de linha já está cadastrado para esta operadora." });
+    console.error(err); res.status(500).json({ error: "Erro ao criar linha disponível." });
+  }
 });
 
 // PUT /linhas-disponiveis/:id
@@ -58,7 +61,10 @@ router.put("/:id", auth, canAccess("s19","edit"), async (req, res) => {
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Linha não encontrada." });
     res.json(r.rows[0]);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Erro ao atualizar linha disponível." }); }
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Este número de linha já está cadastrado para esta operadora." });
+    console.error(err); res.status(500).json({ error: "Erro ao atualizar linha disponível." });
+  }
 });
 
 // GET /linhas-disponiveis/liberacao — linhas "Em análise" e "Em estoque" para s57

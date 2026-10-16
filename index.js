@@ -1092,6 +1092,12 @@ migrate("ALTER TABLE itens_controle_ativos_terceirizados ADD COLUMN IF NOT EXIST
 migrate("INSERT INTO screens (id,name,module) VALUES ('s69','Controle de Ativos Terceirizados','Movimentações') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s69":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's69')`);
 
+// Unicidade número de linha + operadora em Linhas Disponíveis
+// ATENÇÃO: este índice só será criado se não houver duplicatas existentes na tabela.
+// Se houver, a migration será ignorada (log de erro) e as duplicatas devem ser
+// resolvidas manualmente antes de redeployar.
+migrate("CREATE UNIQUE INDEX IF NOT EXISTS uq_linhas_numero_operadora ON linhas_disponiveis(numero_linha, operadora_id)");
+
 // Ciência em Itens de Equipe
 migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS ciencia_usuario_id UUID REFERENCES users(id) ON DELETE SET NULL");
 migrate("ALTER TABLE equipe_itens ADD COLUMN IF NOT EXISTS ciencia_nome VARCHAR(200)");

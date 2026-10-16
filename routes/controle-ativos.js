@@ -241,14 +241,16 @@ router.get("/itens/relatorio", auth, canAccessAnyScreen(["s21", "s26", "s27"]), 
               i.condicao, i.acessorios, i.status_ativo AS "statusAtivo",
               i.operadora_id  AS "operadoraId",  o.name  AS "operadoraName",
               i.linha_id      AS "linhaId",       ld.numero_linha AS "numeroLinha",
-              i.iccid, i.acesso, i.estrutura, i.tipo_pacote AS "tipoPacote"
+              i.iccid, i.acesso, i.estrutura, i.tipo_pacote AS "tipoPacote",
+              a.supplier_id AS "supplierId", sup.name AS "supplierName"
          FROM itens_controle_ativos i
          JOIN controle_ativos ca ON ca.id = i.controle_ativo_id
-         LEFT JOIN companies          c  ON c.id  = i.company_id
-         LEFT JOIN tipo_ativos        ta ON ta.id = i.tipo_ativo_id
-         LEFT JOIN ativos             a  ON a.id  = i.ativo_id
-         LEFT JOIN operadoras         o  ON o.id  = i.operadora_id
-         LEFT JOIN linhas_disponiveis ld ON ld.id = i.linha_id
+         LEFT JOIN companies          c   ON c.id   = i.company_id
+         LEFT JOIN tipo_ativos        ta  ON ta.id  = i.tipo_ativo_id
+         LEFT JOIN ativos             a   ON a.id   = i.ativo_id
+         LEFT JOIN suppliers          sup ON sup.id = a.supplier_id
+         LEFT JOIN operadoras         o   ON o.id   = i.operadora_id
+         LEFT JOIN linhas_disponiveis ld  ON ld.id  = i.linha_id
         ORDER BY ca.nome_funcionario, ta.name, a.nome`
     );
     res.json(r.rows);
