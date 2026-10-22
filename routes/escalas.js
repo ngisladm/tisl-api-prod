@@ -17,13 +17,12 @@ function minutesToHHMM(mins) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 function turnoHoras(turno, isWeekendOrFeriado) {
-  // Returns duration in minutes for each turno
   if (!isWeekendOrFeriado) {
     // Mon-Fri: turno1=00:00-07:30 (450min), turno2=17:30-00:00 (390min)
     return turno === "turno1" ? 450 : 390;
   } else {
-    // Sat/Sun/Feriado: turno1=00:00-12:00 (720min), turno2=12:00-00:00 (720min)
-    return 720;
+    // Sat/Sun/Feriado: turno1=00:00-07:30 (450min), turno2=07:30-00:00 (990min)
+    return turno === "turno1" ? 450 : 990;
   }
 }
 
@@ -232,8 +231,8 @@ router.post("/:id/turnos", auth, async (req, res) => {
         horaInicio = turno === "turno1" ? "00:00" : "17:30";
         horaFim    = turno === "turno1" ? "07:30" : "00:00";
       } else {
-        horaInicio = turno === "turno1" ? "00:00" : "12:00";
-        horaFim    = turno === "turno1" ? "12:00" : "00:00";
+        horaInicio = turno === "turno1" ? "00:00" : "07:30";
+        horaFim    = turno === "turno1" ? "07:30" : "00:00";
       }
       const upsert = await pool.query(
         `INSERT INTO escala_turnos (escala_id, turno_date, turno, funcionario_id, hora_inicio, hora_fim, is_feriado)
@@ -325,7 +324,7 @@ router.get("/relatorio/horas", auth, async (req, res) => {
   function minutesToHHMM(m){ if(!m||m<=0)return"00:00"; return`${String(Math.floor(Math.abs(m)/60)).padStart(2,"0")}:${String(Math.abs(m)%60).padStart(2,"0")}`; }
   function turnoHoras(turno, isWeekendOrFeriado){
     if(!isWeekendOrFeriado) return turno==="turno1"?450:390;
-    return 720;
+    return turno==="turno1"?450:990;
   }
 
   try {
