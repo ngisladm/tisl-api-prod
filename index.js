@@ -1134,6 +1134,10 @@ migrate(`CREATE TABLE IF NOT EXISTS itens_consumo_impressao (
 migrate("INSERT INTO screens (id,name,module) VALUES ('s70','Consumo de Impressão','Movimentações') ON CONFLICT DO NOTHING");
 migrate(`UPDATE profiles SET permissions = permissions || '{"s70":{"view":true,"insert":true,"edit":true,"delete":true}}'::jsonb WHERE NOT (permissions ? 's70')`);
 
+// Versão 34 — Relatório de Ativos por Coligada (s73)
+migrate("INSERT INTO screens (id,name,module) VALUES ('s73','Ativos por Coligada','Relatórios') ON CONFLICT DO NOTHING");
+migrate(`UPDATE profiles SET permissions = permissions || '{"s73":{"view":true}}'::jsonb WHERE NOT (permissions ? 's73')`);
+
 app.use("/auth",          authRoutes);
 app.use("/users",         usersRoutes);
 app.use("/profiles",      profilesRoutes);
