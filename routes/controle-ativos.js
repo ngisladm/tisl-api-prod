@@ -224,10 +224,11 @@ router.get("/itens/all", auth, canAccess("s21"), async (req, res) => {
 });
 
 // Retorna todos os itens com info completa para relatórios
-router.get("/itens/relatorio", auth, canAccessAnyScreen(["s21", "s26", "s27"]), async (req, res) => {
+router.get("/itens/relatorio", auth, canAccessAnyScreen(["s21", "s26", "s27", "s73"]), async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT ca.nome_funcionario AS "nomeFuncionario", ca.cpf, ca.funcionario_id AS "funcionarioId",
+              fn.coligada,
               i.id,
               i.company_id    AS "companyId",    c.name  AS "companyName",
               i.tipo_ativo_id AS "tipoAtivoId",  ta.name AS "tipoAtivoName",
@@ -245,6 +246,7 @@ router.get("/itens/relatorio", auth, canAccessAnyScreen(["s21", "s26", "s27"]), 
               a.supplier_id AS "supplierId", sup.name AS "supplierName"
          FROM itens_controle_ativos i
          JOIN controle_ativos ca ON ca.id = i.controle_ativo_id
+         LEFT JOIN funcionarios       fn  ON fn.id  = ca.funcionario_id
          LEFT JOIN companies          c   ON c.id   = i.company_id
          LEFT JOIN tipo_ativos        ta  ON ta.id  = i.tipo_ativo_id
          LEFT JOIN ativos             a   ON a.id   = i.ativo_id
